@@ -9,33 +9,55 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ActivityIndicator,
+  SafeAreaView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Sprout, Eye, EyeOff } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
+import { loginFarmer, loginAdmin } from '@/services/auth.service';
+import { setUserData } from '@/services/token.service';
+import { Eye, EyeOff, Sprout } from 'lucide-react-native';
 
 const LoginScreen = () => {
   const router = useRouter()
   const [idInput, setIdInput] = useState('');
   const [pwInput, setPwInput] = useState('');
   const [showPw, setShowPw] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const DEMO_ID_FARMER = 'farmer';
-  const DEMO_PW_FARMER = 'farmer123';
-  const DEMO_ID_ADMIN = 'admin';
-  const DEMO_PW_ADMIN = 'admin123';
-
-  const handleLogin = () => {
-    if (idInput === DEMO_ID_FARMER && pwInput === DEMO_PW_FARMER) {
-      Alert.alert('Success', 'Login successful!');
-      router.push('/(tabs)/farmer');
-    } else if (idInput === DEMO_ID_ADMIN && pwInput === DEMO_PW_ADMIN) {
-      Alert.alert('Success', 'Login successful!');
-    //   router.push('/admin');
-    } else {
-      Alert.alert('Error', 'Invalid ID or password. Please try again.');
+  const handleLogin = async () => {
+    if (!idInput.trim() || !pwInput.trim()) {
+      Alert.alert('Error', 'Please enter both username and password');
+      return;
     }
-  };
+
+    setIsLoading(true);
+
+    try {
+      const farmerResponse = await loginFarmer({
+        username: idInput,
+        password: pwInput,
+      });
+
+      if (farmerResponse.status === 'success') {
+        if (farmerResponse.data) {
+          await setUserData({
+            ...farmerResponse.data,
+            role: 'farmer',
+          });
+        }
+        
+        Alert.alert('Success', 'Login successful!');
+        router.push('/(tabs)/farmer');
+        return;
+      }
+    } catch (error: any) {
+      console.log('Farmer login failed:', error.message);
+    } finally {
+      setIsLoading(false);
+    }
+
+    Alert.alert('Error', 'Invalid username or password. Please try again.');
+  } 
 
   return (
     <SafeAreaView style={styles.container}>
@@ -111,8 +133,16 @@ const LoginScreen = () => {
               </View>
 
               {/* Login Button */}
-              <TouchableOpacity style={styles.button} onPress={handleLogin}>
-                <Text style={styles.buttonText}>Continue</Text>
+              <TouchableOpacity 
+                style={[styles.button, isLoading && styles.buttonDisabled]} 
+                onPress={handleLogin}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.buttonText}>Continue</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -230,6 +260,9 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 8,
     alignItems: 'center',
+  },
+  buttonDisabled: {
+    backgroundColor: '#a5c78a',
   },
   buttonText: {
     fontSize: 16,
