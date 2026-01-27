@@ -1,4 +1,3 @@
-import axios from 'axios';
 import apiClient from './api';
 
 export interface LoginCredentials {
@@ -48,7 +47,7 @@ const handleError = (error: any): AuthError => {
 
 export const loginFarmer = async (credentials: LoginCredentials): Promise<AuthResponse> => {
   try {
-    const response = await apiClient.post('/api/v1/auth/login-farmer', credentials);
+    const response = await apiClient.post('/auth/login-farmer', credentials);
     return response.data;
   } catch (error: any) {
     throw handleError(error);
@@ -57,7 +56,7 @@ export const loginFarmer = async (credentials: LoginCredentials): Promise<AuthRe
 
 export const signupFarmer = async (credentials: SignupCredentials): Promise<AuthResponse> => {
   try {
-    const response = await apiClient.post('/api/v1/auth/signup-farmer', credentials);
+    const response = await apiClient.post('/auth/signup-farmer', credentials);
     return response.data;
   } catch (error: any) {
     throw handleError(error);
@@ -66,7 +65,7 @@ export const signupFarmer = async (credentials: SignupCredentials): Promise<Auth
 
 export const loginAdmin = async (credentials: LoginCredentials): Promise<AuthResponse> => {
   try {
-    const response = await apiClient.post('/api/v1/auth/login-admin', credentials);
+    const response = await apiClient.post('/auth/login-admin', credentials);
     return response.data;
   } catch (error: any) {
     throw handleError(error);
@@ -75,7 +74,7 @@ export const loginAdmin = async (credentials: LoginCredentials): Promise<AuthRes
 
 export const signupAdmin = async (credentials: SignupCredentials): Promise<AuthResponse> => {
   try {
-    const response = await apiClient.post('/api/v1/auth/signup-admin', credentials);
+    const response = await apiClient.post('/auth/signup-admin', credentials);
     return response.data;
   } catch (error: any) {
     throw handleError(error);

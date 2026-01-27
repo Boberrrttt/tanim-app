@@ -22,22 +22,16 @@ import {
   BrainCircuit,
   Globe,
   History,
-  CloudRain,
-  LogOut,
   Home,
   BarChart3,
 } from 'lucide-react-native';
 import FarmingTimeline from '../../components/FarmingTimeline';
 import { useRouter } from 'expo-router';
+import { getFarms } from '../../services/farm.service';
+import { IFarm } from '../../types/farm.types';
+import { ISoilHealth } from '@/types/soil-health.types';
+import { getSoilHealth } from '@/services/soil-health.service';
 
-interface SoilHealthData {
-  nitrogen: { percent: number; value: number; status: string; color: string };
-  phosphorus: { percent: number; value: number; status: string; color: string };
-  potassium: { percent: number; value: number; status: string; color: string };
-  salinity: { percent: number; value: number; status: string; color: string };
-  acidity: { percent: number; value: number; status: string; color: string };
-  moisture: { percent: number; value: number; status: string; color: string };
-}
 
 interface WeatherData {
   temp: number;
@@ -57,9 +51,23 @@ const FarmerScreen = () => {
   const [selectedCrop, setSelectedCrop] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'timeline' | 'history'>('home');
-  const [soilHealth, setSoilHealth] = useState<SoilHealthData | null>(null);
+  const [soilHealth, setSoilHealth] = useState<ISoilHealth | null>(null);
   const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [farms, setFarms] = useState<IFarm[]>([]);
 
+  useEffect(() => {
+    const getDetails = async () => {
+      const response = await Promise.all([
+        getFarms(),
+        getSoilHealth({farm_id: farms[0]?.farm_id}),
+      ])
+      setFarms(response[0].data);
+      setSoilHealth(response[1].data[0]);
+    }
+    getDetails();
+  }, [])
+
+  
   const translations = {
     English: {
       welcome: 'Welcome, Juan Carlos Santos',
@@ -112,23 +120,6 @@ const FarmerScreen = () => {
   };
 
   const t = translations[language];
-
-  const farms = [
-    {
-      id: 'kalinawan',
-      name: 'Kalinawan Farm',
-      icon: '🌾',
-      details: '12.5 hectares • Clay-loam soil',
-      location: 'Cagayan de Oro, Misamis Oriental',
-    },
-    {
-      id: 'malasag',
-      name: 'Malasag Organic Farm',
-      icon: '🥕',
-      details: '8.2 hectares • Sandy-loam soil',
-      location: 'Malaybalay, Bukidnon',
-    },
-  ];
 
   const crops = [
     {
@@ -203,7 +194,7 @@ const FarmerScreen = () => {
   };
 
   // Generate random soil health data
-  const generateSoilHealth = (farmId: string): SoilHealthData => {
+  const generateSoilHealth = (farmId: string): ISoilHealth => {
     // Different seed ranges for different farms to create variety
     const farmSeeds = {
       kalinawan: { min: 65, max: 90 },
@@ -216,57 +207,24 @@ const FarmerScreen = () => {
       return Math.floor(Math.random() * (max - min + 1)) + min;
     };
 
-    const getStatus = (value: number, type: 'normal' | 'inverse' = 'normal') => {
-      if (type === 'inverse') {
-        if (value < 25) return { status: t.low, color: '#dbeafe' };
-        if (value < 50) return { status: t.good, color: '#d1fae5' };
-        return { status: t.moderate, color: '#fef3c7' };
-      } else {
-        if (value < 50) return { status: t.low, color: '#fee2e2' };
-        if (value < 70) return { status: t.moderate, color: '#fef3c7' };
-        if (value < 85) return { status: t.good, color: '#d1fae5' };
-        return { status: t.excellent, color: '#d1fae5' };
-      }
-    };
-
     const nitrogen = getRandomInRange(seed.min, seed.max);
     const phosphorus = getRandomInRange(seed.min - 10, seed.max - 10);
     const potassium = getRandomInRange(seed.min, seed.max + 5);
     const salinity = getRandomInRange(10, 30);
-    const acidity = getRandomInRange(60, 75);
+    const ph = parseFloat((6.0 + (getRandomInRange(60, 75) / 100 * 2.0)).toFixed(1));
+    const temperature = getRandomInRange(20, 30);
     const moisture = getRandomInRange(seed.min + 5, seed.max);
 
     return {
-      nitrogen: {
-        percent: nitrogen,
-        value: nitrogen,
-        ...getStatus(nitrogen),
-      },
-      phosphorus: {
-        percent: phosphorus,
-        value: phosphorus,
-        ...getStatus(phosphorus),
-      },
-      potassium: {
-        percent: potassium,
-        value: potassium,
-        ...getStatus(potassium),
-      },
-      salinity: {
-        percent: salinity,
-        value: parseFloat((salinity / 100 * 6.5).toFixed(1)),
-        ...getStatus(salinity, 'inverse'),
-      },
-      acidity: {
-        percent: acidity,
-        value: parseFloat((6.0 + (acidity / 100 * 2.0)).toFixed(1)),
-        ...getStatus(acidity),
-      },
-      moisture: {
-        percent: moisture,
-        value: moisture,
-        ...getStatus(moisture),
-      },
+      nitrogen,
+      phosphorus,
+      potassium,
+      ph,
+      salinity: parseFloat((salinity / 100 * 6.5).toFixed(1)),
+      temperature,
+      moisture,
+      farm_id: farmId,
+      classification: 'Good'
     };
   };
 
@@ -361,20 +319,19 @@ const FarmerScreen = () => {
           </View>
           <Text style={styles.sectionDescription}>{t.selectFarmDetails}</Text>
           
-          {farms.map((farm) => (
+          {farms?.map((farm: IFarm) => (
             <TouchableOpacity
-              key={farm.id}
+              key={farm.farm_id}
               style={[
                 styles.farmCard,
-                selectedFarm === farm.id && styles.farmCardSelected,
+                selectedFarm === farm.farm_id && styles.farmCardSelected,
               ]}
-              onPress={() => selectFarm(farm.id)}
+              onPress={() => selectFarm(farm.farm_id)}
             >
-              <Text style={styles.farmIcon}>{farm.icon}</Text>
               <View style={styles.farmInfo}>
-                <Text style={styles.farmName}>{farm.name}</Text>
-                <Text style={styles.farmDetails}>{farm.details}</Text>
-                <Text style={styles.farmLocation}>{farm.location}</Text>
+                <Text style={styles.farmName}>{farm.farm_name}</Text>
+                <Text style={styles.farmDetails}>{farm.farm_measurement} hectares</Text>
+                <Text style={styles.farmLocation}>Lat: {farm.farm_location.latitude}, Lon: {farm.farm_location.longitude}</Text>
               </View>
             </TouchableOpacity>
           ))}
@@ -404,60 +361,60 @@ const FarmerScreen = () => {
                     <HealthCard 
                       element="Nitrogen" 
                       symbol="𝐍" 
-                      percent={soilHealth.nitrogen.percent} 
-                      status={soilHealth.nitrogen.status} 
-                      statusColor={soilHealth.nitrogen.color} 
-                      actualValue={soilHealth.nitrogen.value.toString()} 
-                      unit="%" 
+                      percent={soilHealth.nitrogen} 
+                      status="Good" 
+                      statusColor="#d1fae5" 
+                      actualValue={soilHealth.nitrogen?.toString()} 
+                      unit="mg/kg" 
                       maxValue="100" 
                     />
                     <HealthCard 
                       element="Phosphorus" 
                       symbol="𝐏" 
-                      percent={soilHealth.phosphorus.percent} 
-                      status={soilHealth.phosphorus.status} 
-                      statusColor={soilHealth.phosphorus.color} 
-                      actualValue={soilHealth.phosphorus.value.toString()} 
-                      unit="%" 
+                      percent={soilHealth.phosphorus} 
+                      status="Good" 
+                      statusColor="#d1fae5" 
+                      actualValue={soilHealth.phosphorus?.toString()} 
+                      unit="mg/kg" 
                       maxValue="100" 
                     />
                     <HealthCard 
                       element="Potassium" 
                       symbol="𝐊" 
-                      percent={soilHealth.potassium.percent} 
-                      status={soilHealth.potassium.status} 
-                      statusColor={soilHealth.potassium.color} 
-                      actualValue={soilHealth.potassium.value.toString()} 
-                      unit="%" 
+                      percent={soilHealth.potassium} 
+                      status="Good" 
+                      statusColor="#d1fae5" 
+                      actualValue={soilHealth.potassium?.toString()} 
+                      unit="mg/kg" 
                       maxValue="100" 
                     />
                     <HealthCard 
                       element="Salinity" 
                       symbol="🧂" 
-                      percent={soilHealth.salinity.percent} 
-                      status={soilHealth.salinity.status} 
-                      statusColor={soilHealth.salinity.color} 
-                      actualValue={soilHealth.salinity.value.toString()} 
+                      percent={soilHealth.salinity * 15} 
+                      status="Low" 
+                      statusColor="#dbeafe" 
+                      actualValue={soilHealth.salinity?.toString()} 
                       unit=" dS/m" 
                       maxValue="6.5" 
                     />
                     <HealthCard 
-                      element="Acidity" 
+                      element="pH" 
                       symbol="🧪" 
-                      percent={soilHealth.acidity.percent} 
-                      status={soilHealth.acidity.status} 
-                      statusColor={soilHealth.acidity.color} 
-                      actualValue={soilHealth.acidity.value.toString()} 
+                      percent={soilHealth.ph * 10} 
+                      status="Good" 
+                      statusColor="#d1fae5" 
+                      actualValue={soilHealth.ph?.toString()} 
                       unit=" pH" 
                       maxValue="10" 
                     />
                     <HealthCard 
                       element="Moisture" 
                       symbol="💧" 
-                      percent={soilHealth.moisture.percent} 
-                      status={soilHealth.moisture.status} 
-                      statusColor={soilHealth.moisture.color} 
-                      actualValue={soilHealth.moisture.value.toString()} 
+                      percent={soilHealth.moisture} 
+                      status="Good" 
+                      statusColor="#d1fae5" 
+                      actualValue={soilHealth.moisture?.toString()} 
                       unit="%" 
                       maxValue="100" 
                     />
