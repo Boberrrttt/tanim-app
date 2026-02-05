@@ -6,6 +6,7 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -28,18 +29,26 @@ import {
 import FarmingTimeline from '../../components/FarmingTimeline';
 import { useRouter } from 'expo-router';
 import { getFarms } from '../../services/farm.service';
+import { GetWeatherToday } from '../../services/weather.service';
+import { getSoilHealth } from '@/services/soil-health.service';
 import { IFarm } from '../../types/farm.types';
 import { ISoilHealth } from '@/types/soil-health.types';
-import { getSoilHealth } from '@/services/soil-health.service';
 
-
+// ... rest of the code remains the same ...
 interface WeatherData {
-  temp: number;
-  condition: string;
+  city: string;
+  country: string;
+  latitude: number;
+  longitude: number;
+  temperature: number;
+  feels_like: number;
   humidity: number;
-  windSpeed: number;
-  emoji: string;
-  recommendation: string;
+  pressure: number;
+  description: string;
+  wind_speed: number;
+  wind_direction: number;
+  visibility: number;
+  timestamp: number;
 }
 
 const FarmerScreen = () => {
@@ -54,23 +63,48 @@ const FarmerScreen = () => {
   const [soilHealth, setSoilHealth] = useState<ISoilHealth | null>(null);
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [farms, setFarms] = useState<IFarm[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const getDetails = async () => {
-      const response = await Promise.all([
-        getFarms(),
-        getSoilHealth({farm_id: farms[0]?.farm_id}),
-      ])
-      setFarms(response[0].data);
-      setSoilHealth(response[1].data[0]);
-    }
+      try {
+        setLoading(true);
+        const farmsResponse = await getFarms();
+        const farmsData = farmsResponse?.data || [];
+        setFarms(farmsData);
+        
+        if (farmsData.length > 0) {
+          // Get weather for first farm
+          const firstFarm = farmsData[0];
+          if (firstFarm?.farm_location) {
+            const weather = await GetWeatherToday(
+              firstFarm.farm_location.latitude, 
+              firstFarm.farm_location.longitude
+            );
+            setWeather(weather);
+          }
+          
+          // Get soil health for first farm
+          if (firstFarm?.farm_id) {
+            const soilHealthResponse = await getSoilHealth({farm_id: firstFarm.farm_id});
+            setSoilHealth(soilHealthResponse?.data?.[0] || null);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching farm details:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
     getDetails();
   }, [])
+
 
   
   const translations = {
     English: {
-      welcome: 'Welcome, Juan Carlos Santos',
+      welcome: 'Welcome, Farmer!',
       logout: 'Logout',
       history: 'History',
       myFarms: 'My Farms',
@@ -80,7 +114,12 @@ const FarmerScreen = () => {
       summary: 'Summary',
       lowSalinity: 'Low salinity is ideal for most vegetable crops. Good moisture retention suitable for current season planting.',
       weatherForecast: 'Weather Forecast',
-      todayIs: 'Today is August 27, 2025 • Wet Season (Southwest Monsoon)',
+      todayIs: `Today is ${new Date().toLocaleDateString('en-US', { 
+        weekday: 'long', 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      })} • Wet Season (Southwest Monsoon)`,
       generateAIPlan: 'Generate AI Plan',
       recommendedCrops: 'Recommended Crops',
       selectStartingCrop: "Select your starting crop and we'll plan your crop rotation.",
@@ -104,7 +143,12 @@ const FarmerScreen = () => {
       summary: 'Buod',
       lowSalinity: 'Ang mababang kaasinan ay mainam para sa karamihan ng mga gulay.',
       weatherForecast: 'Pagtataya ng Panahon',
-      todayIs: 'Ngayon ay Agosto 27, 2025 • Tag-ulan (Habagat)',
+      todayIs: `Ngayon ay ${new Date().toLocaleDateString('fil-PH', { 
+        weekday: 'long', 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      })} • Tag-ulan (Habagat)`,
       generateAIPlan: 'Bumuo ng Plano mula sa AI',
       recommendedCrops: 'Mga Inirerekomendang Pananim',
       selectStartingCrop: 'Pumili ng panimulang pananim at gagawa kami ng plano para sa iyong crop rotation.',
@@ -120,6 +164,39 @@ const FarmerScreen = () => {
   };
 
   const t = translations[language];
+
+  // Helper function to convert Kelvin to Celsius
+  const kelvinToCelsius = (kelvin: number) => Math.round(kelvin - 273.15);
+
+  // Helper function to get weather emoji based on description
+  const getWeatherEmoji = (description: string) => {
+    const desc = description?.toLowerCase();
+    if (desc?.includes('clear')) return '☀️';
+    if (desc?.includes('cloud')) return '⛅';
+    if (desc?.includes('rain')) return '🌧️';
+    if (desc?.includes('snow')) return '❄️';
+    if (desc?.includes('thunder')) return '⛈️';
+    if (desc?.includes('mist') || desc?.includes('fog')) return '🌫️';
+    return '☀️'; // default
+  };
+
+  // Helper function to get weather recommendation
+  const getWeatherRecommendation = (description: string, tempCelsius: number, humidity: number) => {
+    const desc = description?.toLowerCase();
+    if (desc?.includes('rain')) {
+      return 'Rain expected. Postpone irrigation and fertilizer application. Good time for transplanting seedlings.';
+    } else if (tempCelsius > 35) {
+      return 'High temperature warning. Increase irrigation frequency and provide shade for sensitive crops.';
+    } else if (tempCelsius < 20) {
+      return 'Cool weather. Ideal for leafy vegetables. Reduce watering and watch for frost.';
+    } else if (humidity > 80) {
+      return 'High humidity. Monitor crops for fungal diseases. Ensure good air circulation.';
+    } else if (desc?.includes('clear') && tempCelsius >= 25 && tempCelsius <= 32) {
+      return 'Perfect farming conditions! Ideal for planting, weeding, and harvesting activities.';
+    } else {
+      return 'Moderate conditions. Continue regular farm maintenance and monitoring.';
+    }
+  };
 
   const crops = [
     {
@@ -153,43 +230,34 @@ const FarmerScreen = () => {
   // Generate random weather data
   const generateWeather = (): WeatherData => {
     const weatherConditions = [
-      { condition: 'Clear', emoji: '☀️', tempRange: { min: 28, max: 35 } },
-      { condition: 'Partly Cloudy', emoji: '⛅', tempRange: { min: 25, max: 32 } },
-      { condition: 'Cloudy', emoji: '☁️', tempRange: { min: 24, max: 30 } },
-      { condition: 'Light Rain', emoji: '🌦️', tempRange: { min: 22, max: 28 } },
-      { condition: 'Rain', emoji: '🌧️', tempRange: { min: 20, max: 26 } },
-      { condition: 'Overcast', emoji: '⛅', tempRange: { min: 23, max: 29 } },
+      { description: 'clear sky', tempRange: { min: 28, max: 35 } },
+      { description: 'partly cloudy', tempRange: { min: 25, max: 32 } },
+      { description: 'cloudy', tempRange: { min: 24, max: 30 } },
+      { description: 'light rain', tempRange: { min: 22, max: 28 } },
+      { description: 'rain', tempRange: { min: 20, max: 26 } },
+      { description: 'overcast', tempRange: { min: 23, max: 29 } },
     ];
 
     const randomCondition = weatherConditions[Math.floor(Math.random() * weatherConditions.length)];
-    const temp = Math.floor(Math.random() * (randomCondition.tempRange.max - randomCondition.tempRange.min + 1)) + randomCondition.tempRange.min;
+    const tempCelsius = Math.floor(Math.random() * (randomCondition.tempRange.max - randomCondition.tempRange.min + 1)) + randomCondition.tempRange.min;
+    const tempKelvin = tempCelsius + 273.15;
     const humidity = Math.floor(Math.random() * (90 - 50 + 1)) + 50;
     const windSpeed = Math.floor(Math.random() * (25 - 5 + 1)) + 5;
 
-    // Generate recommendation based on weather
-    const getRecommendation = (condition: string, temp: number, humidity: number) => {
-      if (condition.includes('Rain')) {
-        return 'Rain expected. Postpone irrigation and fertilizer application. Good time for transplanting seedlings.';
-      } else if (temp > 35) {
-        return 'High temperature warning. Increase irrigation frequency and provide shade for sensitive crops.';
-      } else if (temp < 20) {
-        return 'Cool weather. Ideal for leafy vegetables. Reduce watering and watch for frost.';
-      } else if (humidity > 80) {
-        return 'High humidity. Monitor crops for fungal diseases. Ensure good air circulation.';
-      } else if (condition === 'Clear' && temp >= 25 && temp <= 32) {
-        return 'Perfect farming conditions! Ideal for planting, weeding, and harvesting activities.';
-      } else {
-        return 'Moderate conditions. Continue regular farm maintenance and monitoring.';
-      }
-    };
-
     return {
-      temp,
-      condition: randomCondition.condition,
+      city: 'Sample City',
+      country: 'PH',
+      latitude: 14.5995,
+      longitude: 120.9842,
+      temperature: tempKelvin,
+      feels_like: tempKelvin - 5,
       humidity,
-      windSpeed,
-      emoji: randomCondition.emoji,
-      recommendation: getRecommendation(randomCondition.condition, temp, humidity),
+      pressure: 1013,
+      description: randomCondition.description,
+      wind_speed: windSpeed,
+      wind_direction: Math.floor(Math.random() * 360),
+      visibility: 10.0,
+      timestamp: Date.now(),
     };
   };
 
@@ -243,11 +311,23 @@ const FarmerScreen = () => {
     }
   };
 
-  const confirmFarmSelection = () => {
+  const confirmFarmSelection = async () => {
     if (selectedFarm) {
       setShowSoilWeather(true);
-      // Generate random weather data
-      setWeather(generateWeather());
+      try {
+        const selectedFarmData = farms.find(farm => farm.farm_id === selectedFarm);
+        if (selectedFarmData?.farm_location) {
+          const weatherData = await GetWeatherToday(
+            selectedFarmData.farm_location.latitude,
+            selectedFarmData.farm_location.longitude
+          );
+          setWeather(weatherData.data);
+        }
+      } catch (error) {
+        console.error('Error fetching weather:', error);
+        // Fallback to mock data if API fails
+        setWeather(generateWeather());
+      }
     }
   };
 
@@ -319,22 +399,33 @@ const FarmerScreen = () => {
           </View>
           <Text style={styles.sectionDescription}>{t.selectFarmDetails}</Text>
           
-          {farms?.map((farm: IFarm) => (
-            <TouchableOpacity
-              key={farm.farm_id}
-              style={[
-                styles.farmCard,
-                selectedFarm === farm.farm_id && styles.farmCardSelected,
-              ]}
-              onPress={() => selectFarm(farm.farm_id)}
-            >
-              <View style={styles.farmInfo}>
-                <Text style={styles.farmName}>{farm.farm_name}</Text>
-                <Text style={styles.farmDetails}>{farm.farm_measurement} hectares</Text>
-                <Text style={styles.farmLocation}>Lat: {farm.farm_location.latitude}, Lon: {farm.farm_location.longitude}</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#84c059" />
+              <Text style={styles.loadingText}>Loading farms...</Text>
+            </View>
+          ) : farms.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No farms found. Please add a farm to get started.</Text>
+            </View>
+          ) : (
+            farms?.map((farm: IFarm) => (
+              <TouchableOpacity
+                key={farm.farm_id}
+                style={[
+                  styles.farmCard,
+                  selectedFarm === farm.farm_id && styles.farmCardSelected,
+                ]}
+                onPress={() => selectFarm(farm.farm_id)}
+              >
+                <View style={styles.farmInfo}>
+                  <Text style={styles.farmName}>{farm.farm_name}</Text>
+                  <Text style={styles.farmDetails}>{farm.farm_measurement} hectares</Text>
+                  <Text style={styles.farmLocation}>Lat: {farm.farm_location.latitude}, Lon: {farm.farm_location.longitude}</Text>
+                </View>
+              </TouchableOpacity>
+            ))
+          )}
         </View>
 
         {selectedFarm && !showSoilWeather && (
@@ -440,13 +531,13 @@ const FarmerScreen = () => {
               {weather ? (
                 <>
                   <View style={styles.weatherCard}>
-                    <Text style={styles.weatherEmoji}>{weather.emoji}</Text>
+                    <Text style={styles.weatherEmoji}>{getWeatherEmoji(weather.description)}</Text>
                     <View style={styles.weatherTemp}>
                       <View style={styles.tempRow}>
                         <Text style={styles.tempIcon}>🌡️</Text>
-                        <Text style={styles.tempValue}>{weather.temp}°C</Text>
+                        <Text style={styles.tempValue}>{kelvinToCelsius(weather.temperature)}°C</Text>
                       </View>
-                      <Text style={styles.weatherCondition}>{weather.condition}</Text>
+                      <Text style={styles.weatherCondition}>{weather.description}</Text>
                     </View>
                     <View style={styles.weatherDetails}>
                       <View style={styles.weatherDetailItem}>
@@ -455,7 +546,7 @@ const FarmerScreen = () => {
                       </View>
                       <View style={styles.weatherDetailItem}>
                         <Wind size={16} color="#6b7280" />
-                        <Text style={styles.weatherDetailText}>{weather.windSpeed} km/h Wind</Text>
+                        <Text style={styles.weatherDetailText}>{weather.wind_speed} km/h Wind</Text>
                       </View>
                     </View>
                   </View>
@@ -466,8 +557,11 @@ const FarmerScreen = () => {
                       <BrainCircuit size={20} color="#84c059" />
                       <Text style={styles.recommendationTitle}>AI Weather Recommendation</Text>
                     </View>
-                    <Text style={styles.recommendationText}>{weather.recommendation}</Text>
+                    <Text style={styles.recommendationText}>
+                      {getWeatherRecommendation(weather.description, kelvinToCelsius(weather.temperature), weather.humidity)}
+                    </Text>
                   </View>
+
                 </>
               ) : (
                 <View style={styles.weatherCard}>
@@ -1269,6 +1363,31 @@ const styles = StyleSheet.create({
   navTextActive: {
     color: '#84c059',
     fontFamily: 'Inter_600SemiBold',
+  },
+  loadingContainer: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 16,
+    fontFamily: 'Inter_500Medium',
+    color: '#6b7280',
+  },
+  emptyContainer: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+    gap: 12,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontFamily: 'Inter_500Medium',
+    color: '#6b7280',
+    textAlign: 'center',
   },
 });
 
