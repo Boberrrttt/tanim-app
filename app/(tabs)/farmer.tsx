@@ -18,19 +18,15 @@ import {
   Droplet,
   Wind,
   Clover,
-  Calendar,
   Pickaxe,
   BrainCircuit,
   Globe,
-  History,
-  Home,
-  BarChart3,
 } from 'lucide-react-native';
-import FarmingTimeline from '../../components/FarmingTimeline';
 import { useRouter } from 'expo-router';
 import { getFarms } from '../../services/farm.service';
 import { GetWeatherToday } from '../../services/weather.service';
 import { getSoilHealth } from '@/services/soil-health.service';
+import { predict } from '@/services/ml.service';
 import { IFarm } from '../../types/farm.types';
 import { ISoilHealth } from '@/types/soil-health.types';
 
@@ -59,11 +55,15 @@ const FarmerScreen = () => {
   const [showCrops, setShowCrops] = useState(false);
   const [selectedCrop, setSelectedCrop] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [activeTab, setActiveTab] = useState<'home' | 'timeline' | 'history'>('home');
   const [soilHealth, setSoilHealth] = useState<ISoilHealth | null>(null);
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [farms, setFarms] = useState<IFarm[]>([]);
   const [loading, setLoading] = useState(true);
+  const [generatingPlan, setGeneratingPlan] = useState(false);
+  const [predictionResult, setPredictionResult] = useState<{
+    prediction: string;
+    probabilities?: { crop_class: string; probability: number }[];
+  } | null>(null);
 
   useEffect(() => {
     const getDetails = async () => {
@@ -104,28 +104,28 @@ const FarmerScreen = () => {
   
   const translations = {
     English: {
-      welcome: 'Welcome, Farmer!',
+      welcome: 'Hello, Farmer!',
       logout: 'Logout',
-      history: 'History',
+      step1: 'Step 1',
+      step2: 'Step 2',
+      step3: 'Step 3',
       myFarms: 'My Farms',
-      selectFarmDetails: "Select your farm and we'll show you details.",
-      selectFarmButton: 'Select Farm',
+      selectFarmDetails: 'Tap your farm to see recommendations.',
+      selectFarmButton: 'Continue',
       soilHealth: 'Soil Health',
-      summary: 'Summary',
-      lowSalinity: 'Low salinity is ideal for most vegetable crops. Good moisture retention suitable for current season planting.',
-      weatherForecast: 'Weather Forecast',
-      todayIs: `Today is ${new Date().toLocaleDateString('en-US', { 
-        weekday: 'long', 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
-      })} • Wet Season (Southwest Monsoon)`,
-      generateAIPlan: 'Generate AI Plan',
-      recommendedCrops: 'Recommended Crops',
-      selectStartingCrop: "Select your starting crop and we'll plan your crop rotation.",
-      selectCropButton: 'Select Crop',
-      multiCroppingSuggestions: 'Multi-Cropping Suggestions',
-      startFarming: 'Start Farming',
+      summary: 'Quick summary',
+      lowSalinity: 'Good for vegetables. Soil holds water well.',
+      weatherForecast: 'Weather Today',
+      todayIs: `Today: ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`,
+      generateAIPlan: 'Get Crop Suggestions',
+      generatingPlan: 'Getting suggestions...',
+      recommendedCrops: 'Best Crops for Your Land',
+      selectStartingCrop: 'Tap one crop to see fertilizer advice.',
+      selectCropButton: 'Continue',
+      fertilizerSuggestions: 'Fertilizer Advice',
+      startFarming: 'Done',
+      loadingFarms: 'Loading...',
+      noFarms: 'No farms yet. Add a farm to start.',
       good: 'Good',
       moderate: 'Moderate',
       excellent: 'Excellent',
@@ -133,33 +133,33 @@ const FarmerScreen = () => {
       optimal: 'Optimal',
     },
     Filipino: {
-      welcome: 'Maligayang Pagdating, Juan Carlos Santos',
-      logout: 'Mag-logout',
-      history: 'Kasaysayan',
-      myFarms: 'Aking mga Bukirin',
-      selectFarmDetails: 'Pumili ng iyong bukirin at ipapakita namin ang mga detalye.',
-      selectFarmButton: 'Pumili ng Bukirin',
+      welcome: 'Kumusta, Magsasaka!',
+      logout: 'Logout',
+      step1: 'Hakbang 1',
+      step2: 'Hakbang 2',
+      step3: 'Hakbang 3',
+      myFarms: 'Aking mga Bukid',
+      selectFarmDetails: 'Pindutin ang iyong bukid para makita ang mungkahi.',
+      selectFarmButton: 'Magpatuloy',
       soilHealth: 'Kalusugan ng Lupa',
       summary: 'Buod',
-      lowSalinity: 'Ang mababang kaasinan ay mainam para sa karamihan ng mga gulay.',
-      weatherForecast: 'Pagtataya ng Panahon',
-      todayIs: `Ngayon ay ${new Date().toLocaleDateString('fil-PH', { 
-        weekday: 'long', 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
-      })} • Tag-ulan (Habagat)`,
-      generateAIPlan: 'Bumuo ng Plano mula sa AI',
-      recommendedCrops: 'Mga Inirerekomendang Pananim',
-      selectStartingCrop: 'Pumili ng panimulang pananim at gagawa kami ng plano para sa iyong crop rotation.',
-      selectCropButton: 'Pumili ng Pananim',
-      multiCroppingSuggestions: 'Mga Mungkahi sa Sabayang Pagtatanim',
-      startFarming: 'Simulan ang Pagsasaka',
+      lowSalinity: 'Maganda para sa gulay. Maganda ang lupa.',
+      weatherForecast: 'Panahon Ngayon',
+      todayIs: `Ngayon: ${new Date().toLocaleDateString('fil-PH', { weekday: 'long', month: 'short', day: 'numeric' })}`,
+      generateAIPlan: 'Kumuha ng Mungkahing Pananim',
+      generatingPlan: 'Kumukuha ng mungkahi...',
+      recommendedCrops: 'Pinakamagandang Pananim sa Iyong Lupa',
+      selectStartingCrop: 'Pindutin ang isang pananim para makita ang pataba.',
+      selectCropButton: 'Magpatuloy',
+      fertilizerSuggestions: 'Payo sa Pataba',
+      startFarming: 'Tapos',
+      loadingFarms: 'Naglo-load...',
+      noFarms: 'Walang bukid. Magdagdag ng bukid para magsimula.',
       good: 'Maganda',
       moderate: 'Katamtaman',
       excellent: 'Mahusay',
       low: 'Mababa',
-      optimal: 'Pinakamainam',
+      optimal: 'Optimal',
     },
   };
 
@@ -215,16 +215,39 @@ const FarmerScreen = () => {
     },
   ];
 
+  const CROP_LOOKUP: Record<string, { icon: string; description: string }> = {
+    tomato: { icon: '🍅', description: 'Thrives in clay-loam soil with good drainage. High potassium supports fruit development.' },
+    eggplant: { icon: '🍆', description: 'Excellent nitrogen uptake matches your soil profile. Heat-tolerant variety perfect for current season.' },
+    chickpea: { icon: '🫘', description: 'Drought-tolerant legume. Fixes nitrogen in soil. Ideal for warm, dry conditions.' },
+    kidneybeans: { icon: '🫘', description: 'Protein-rich legume. Prefers well-drained soil and moderate temperatures.' },
+    pigeonpeas: { icon: '🫘', description: 'Drought-resistant pulse crop. Good for intercropping and soil improvement.' },
+    mothbeans: { icon: '🫘', description: 'Hardy legume for arid regions. Grows well in sandy loam soils.' },
+    mungbean: { icon: '🫘', description: 'Quick-growing legume. Fixes nitrogen and improves soil fertility.' },
+    blackgram: { icon: '🫘', description: 'Nutritious pulse. Suited to warm climates and well-drained soils.' },
+    lentil: { icon: '🫘', description: 'Cool-season legume. High protein, good for crop rotation.' },
+    rice: { icon: '🍚', description: 'Staple grain. Requires flooded or irrigated conditions. Tropical to subtropical.' },
+    wheat: { icon: '🌾', description: 'Cool-season cereal. Prefers temperate climate and fertile soil.' },
+    cotton: { icon: '🌾', description: 'Fiber crop. Needs long warm season and adequate moisture.' },
+    jute: { icon: '🌿', description: 'Fiber crop. Thrives in hot, humid conditions with plenty of water.' },
+    coffee: { icon: '☕', description: 'Perennial crop. Prefers tropical highlands, shade, and well-drained soil.' },
+    coconut: { icon: '🥥', description: 'Tropical palm. Needs coastal or humid tropical conditions.' },
+    papaya: { icon: '🍈', description: 'Tropical fruit. Fast-growing, needs warm weather and good drainage.' },
+    orange: { icon: '🍊', description: 'Citrus fruit. Prefers subtropical climate and well-drained soil.' },
+    apple: { icon: '🍎', description: 'Temperate fruit. Requires cool winters and moderate summers.' },
+    muskmelon: { icon: '🍈', description: 'Warm-season melon. Needs plenty of sun and well-drained soil.' },
+    watermelon: { icon: '🍉', description: 'Heat-loving vine crop. Requires long warm season and sandy soil.' },
+    grapes: { icon: '🍇', description: 'Vine crop. Prefers sunny slopes and well-drained soil.' },
+    mango: { icon: '🥭', description: 'Tropical fruit tree. Needs warm climate and deep, fertile soil.' },
+    banana: { icon: '🍌', description: 'Tropical herb. Requires warm, humid conditions and rich soil.' },
+    pomegranate: { icon: '🍎', description: 'Drought-tolerant fruit. Suited to arid and semi-arid regions.' },
+  };
+
   const handleLogout = () => {
     router.push('/login');
   };
 
   const toggleLanguage = () => {
     setLanguage(language === 'English' ? 'Filipino' : 'English');
-  };
-
-  const goToHistory = () => {
-    router.push('/(tabs)/history');
   };
 
   // Generate random weather data
@@ -331,8 +354,49 @@ const FarmerScreen = () => {
     }
   };
 
-  const generateAIPlan = () => {
-    setShowCrops(true);
+  const generateAIPlan = async () => {
+    if (!soilHealth) {
+      Alert.alert('Wait', 'Please tap a farm first.');
+      return;
+    }
+
+    setGeneratingPlan(true);
+    setPredictionResult(null);
+
+    try {
+      // Build features: [N, P, K, ph, temperature, humidity] per API schema
+      const tempCelsius = weather
+        ? kelvinToCelsius(weather.temperature)
+        : soilHealth.temperature;
+      const humidity = weather?.humidity ?? soilHealth.moisture;
+
+      const features = [
+        soilHealth.nitrogen,
+        soilHealth.phosphorus,
+        soilHealth.potassium,
+        soilHealth.ph,
+        tempCelsius,
+        humidity,
+      ];
+
+
+      const result = await predict(features);
+      const data = result.data ?? result;
+      setPredictionResult({
+        prediction: data.prediction ?? '',
+        probabilities: data.probabilities ?? undefined,
+      });
+      setShowCrops(true);
+    } catch (error) {
+      console.error('Prediction error:', error);
+      Alert.alert(
+        'Try Again',
+        'Could not get suggestions. Showing common crops instead.'
+      );
+      setShowCrops(true);
+    } finally {
+      setGeneratingPlan(false);
+    }
   };
 
   const selectCrop = (cropId: string) => {
@@ -351,8 +415,7 @@ const FarmerScreen = () => {
   };
 
   const startFarming = () => {
-    Alert.alert('Success', '🎉 Multi-crop suggestion successful! Your farming plan has been created and saved.');
-    router.push('/(tabs)/history');
+    Alert.alert('Saved', 'Your plan has been saved.');
   };
 
   const HealthCard = ({ element, symbol, percent, status, statusColor, actualValue, unit, maxValue }: any) => (
@@ -379,22 +442,21 @@ const FarmerScreen = () => {
 
   const renderHomeTab = () => (
       <>
-        {/* Pills for history and language */}
+        {/* Language toggle */}
         <View style={styles.pillsContainer}>
-          <TouchableOpacity style={styles.pill} onPress={toggleLanguage}>
-            <Globe size={18} color="#000" />
+          <TouchableOpacity style={styles.pill} onPress={toggleLanguage} activeOpacity={0.7}>
+            <Globe size={20} color="#000" />
             <Text style={styles.pillText}>{language}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.pill} onPress={goToHistory}>
-            <History size={18} color="#000" />
-            <Text style={styles.pillText}>{t.history}</Text>
           </TouchableOpacity>
         </View>
 
-        {/* My Farms Section */}
+        {/* Step 1: My Farms */}
         <View style={styles.section}>
+          <View style={styles.stepBadge}>
+            <Text style={styles.stepBadgeText}>{t.step1}</Text>
+          </View>
           <View style={styles.sectionHeader}>
-            <MapPin size={24} color="#84c059" />
+            <MapPin size={28} color="#84c059" />
             <Text style={styles.sectionTitle}>{t.myFarms}</Text>
           </View>
           <Text style={styles.sectionDescription}>{t.selectFarmDetails}</Text>
@@ -402,11 +464,11 @@ const FarmerScreen = () => {
           {loading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#84c059" />
-              <Text style={styles.loadingText}>Loading farms...</Text>
+              <Text style={styles.loadingText}>{t.loadingFarms}</Text>
             </View>
           ) : farms.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No farms found. Please add a farm to get started.</Text>
+              <Text style={styles.emptyText}>{t.noFarms}</Text>
             </View>
           ) : (
             farms?.map((farm: IFarm) => (
@@ -417,11 +479,11 @@ const FarmerScreen = () => {
                   selectedFarm === farm.farm_id && styles.farmCardSelected,
                 ]}
                 onPress={() => selectFarm(farm.farm_id)}
+                activeOpacity={0.7}
               >
                 <View style={styles.farmInfo}>
                   <Text style={styles.farmName}>{farm.farm_name}</Text>
                   <Text style={styles.farmDetails}>{farm.farm_measurement} hectares</Text>
-                  <Text style={styles.farmLocation}>Lat: {farm.farm_location.latitude}, Lon: {farm.farm_location.longitude}</Text>
                 </View>
               </TouchableOpacity>
             ))
@@ -429,8 +491,8 @@ const FarmerScreen = () => {
         </View>
 
         {selectedFarm && !showSoilWeather && (
-          <TouchableOpacity style={styles.actionButton} onPress={confirmFarmSelection}>
-            <MapPin size={24} color="#ffffff" />
+          <TouchableOpacity style={styles.actionButton} onPress={confirmFarmSelection} activeOpacity={0.8}>
+            <MapPin size={26} color="#ffffff" />
             <Text style={styles.actionButtonText}>{t.selectFarmButton}</Text>
           </TouchableOpacity>
         )}
@@ -439,10 +501,13 @@ const FarmerScreen = () => {
           <>
             <View style={styles.divider} />
 
-            {/* Soil Health Section */}
+            {/* Step 2: Soil & Weather */}
             <View style={styles.section}>
+              <View style={styles.stepBadge}>
+                <Text style={styles.stepBadgeText}>{t.step2}</Text>
+              </View>
               <View style={styles.sectionHeader}>
-                <ChartLine size={24} color="#84c059" />
+                <ChartLine size={28} color="#84c059" />
                 <Text style={styles.sectionTitle}>{t.soilHealth}</Text>
               </View>
               
@@ -520,10 +585,9 @@ const FarmerScreen = () => {
               </View>
             </View>
 
-            {/* Weather Section */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Umbrella size={24} color="#84c059" />
+                <Umbrella size={28} color="#84c059" />
                 <Text style={styles.sectionTitle}>{t.weatherForecast}</Text>
               </View>
               <Text style={styles.weatherDate}>{t.todayIs}</Text>
@@ -551,11 +615,10 @@ const FarmerScreen = () => {
                     </View>
                   </View>
 
-                  {/* Weather-based Recommendation */}
                   <View style={styles.weatherRecommendation}>
                     <View style={styles.recommendationHeader}>
-                      <BrainCircuit size={20} color="#84c059" />
-                      <Text style={styles.recommendationTitle}>AI Weather Recommendation</Text>
+                      <BrainCircuit size={22} color="#84c059" />
+                      <Text style={styles.recommendationTitle}>What to do today</Text>
                     </View>
                     <Text style={styles.recommendationText}>
                       {getWeatherRecommendation(weather.description, kelvinToCelsius(weather.temperature), weather.humidity)}
@@ -578,9 +641,23 @@ const FarmerScreen = () => {
             </View>
 
             {!showCrops && (
-              <TouchableOpacity style={styles.actionButton} onPress={generateAIPlan}>
-                <BrainCircuit size={24} color="#ffffff" />
-                <Text style={styles.actionButtonText}>{t.generateAIPlan}</Text>
+              <TouchableOpacity
+                style={[styles.actionButton, generatingPlan && styles.actionButtonDisabled]}
+                onPress={generateAIPlan}
+                disabled={generatingPlan}
+                activeOpacity={0.8}
+              >
+                {generatingPlan ? (
+                  <>
+                    <ActivityIndicator size="small" color="#ffffff" />
+                    <Text style={styles.actionButtonText}>{t.generatingPlan}</Text>
+                  </>
+                ) : (
+                  <>
+                    <BrainCircuit size={26} color="#ffffff" />
+                    <Text style={styles.actionButtonText}>{t.generateAIPlan}</Text>
+                  </>
+                )}
               </TouchableOpacity>
             )}
           </>
@@ -590,37 +667,80 @@ const FarmerScreen = () => {
           <>
             <View style={styles.divider} />
 
-            {/* Recommended Crops Section */}
+            {/* Step 3: Crops & Fertilizer */}
             <View style={styles.section}>
+              <View style={styles.stepBadge}>
+                <Text style={styles.stepBadgeText}>{t.step3}</Text>
+              </View>
               <View style={styles.sectionHeader}>
-                <Leaf size={24} color="#84c059" />
+                <Leaf size={28} color="#84c059" />
                 <Text style={styles.sectionTitle}>{t.recommendedCrops}</Text>
               </View>
               <Text style={styles.sectionDescription}>{t.selectStartingCrop}</Text>
 
-              {crops.map((crop) => (
-                <TouchableOpacity
-                  key={crop.id}
-                  style={[
-                    styles.cropCard,
-                    selectedCrop === crop.id && styles.cropCardSelected,
-                  ]}
-                  onPress={() => selectCrop(crop.id)}
-                >
-                  <View style={styles.cropHeader}>
-                    <Text style={styles.cropIcon}>{crop.icon}</Text>
-                    <View style={styles.cropTitleContainer}>
-                      <Text style={styles.cropName}>{crop.name}</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.cropDescription}>{crop.description}</Text>
-                </TouchableOpacity>
-              ))}
+              {(predictionResult?.probabilities && predictionResult.probabilities.length > 0
+                ? predictionResult.probabilities.map((item) => {
+                    const id = item.crop_class?.toLowerCase().replace(/\s/g, '') ?? '';
+                    const lookup = CROP_LOOKUP[id] ?? CROP_LOOKUP[item.crop_class?.toLowerCase() ?? ''];
+                    const icon = lookup?.icon ?? '🌱';
+                    const description = lookup?.description ?? `AI-recommended based on your soil and weather conditions.`;
+                    const prob = item.probability != null ? (item.probability * 100).toFixed(0) : '—';
+                    const isPrediction = item.crop_class?.toLowerCase() === predictionResult.prediction?.toLowerCase();
+                    const displayName = item.crop_class
+                      ? item.crop_class.charAt(0).toUpperCase() + item.crop_class.slice(1).toLowerCase()
+                      : '';
+                    return (
+                      <TouchableOpacity
+                        key={item.crop_class}
+                        style={[
+                          styles.cropCard,
+                          selectedCrop === id && styles.cropCardSelected,
+                          isPrediction && styles.cropCardPrediction,
+                        ]}
+                        onPress={() => selectCrop(id)}
+                      >
+                        <View style={styles.cropHeader}>
+                          <Text style={styles.cropIcon}>{icon}</Text>
+                          <View style={styles.cropTitleContainer}>
+                            <Text style={styles.cropName}>
+                              {displayName}
+                              {isPrediction && ' ★'}
+                            </Text>
+                            <View style={styles.cropConfidence}>
+                              <Text style={[styles.cropConfidenceText, isPrediction && styles.cropConfidenceHighlight]}>
+                                {prob}% match
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+                        <Text style={styles.cropDescription}>{description}</Text>
+                      </TouchableOpacity>
+                    );
+                  })
+                : crops.map((crop) => (
+                    <TouchableOpacity
+                      key={crop.id}
+                      style={[
+                        styles.cropCard,
+                        selectedCrop === crop.id && styles.cropCardSelected,
+                      ]}
+                      onPress={() => selectCrop(crop.id)}
+                    >
+                      <View style={styles.cropHeader}>
+                        <Text style={styles.cropIcon}>{crop.icon}</Text>
+                        <View style={styles.cropTitleContainer}>
+                          <Text style={styles.cropName}>{crop.name}</Text>
+                        </View>
+                      </View>
+                      <Text style={styles.cropDescription}>{crop.description}</Text>
+                    </TouchableOpacity>
+                  ))
+              )}
             </View>
 
             {selectedCrop && !showSuggestions && (
-              <TouchableOpacity style={styles.actionButton} onPress={confirmCropSelection}>
-                <Clover size={24} color="#ffffff" />
+              <TouchableOpacity style={styles.actionButton} onPress={confirmCropSelection} activeOpacity={0.8}>
+                <Clover size={26} color="#ffffff" />
                 <Text style={styles.actionButtonText}>{t.selectCropButton}</Text>
               </TouchableOpacity>
             )}
@@ -631,106 +751,39 @@ const FarmerScreen = () => {
           <>
             <View style={styles.divider} />
 
-            {/* Multi-Cropping Suggestions */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Clover size={24} color="#84c059" />
-                <Text style={styles.sectionTitle}>{t.multiCroppingSuggestions}</Text>
+                <Clover size={28} color="#84c059" />
+                <Text style={styles.sectionTitle}>{t.fertilizerSuggestions}</Text>
               </View>
 
-              {/* Good Companions */}
-              <View style={styles.companionCard}>
-                <Text style={styles.companionTitle}>🤝 Good Companions</Text>
-                <View style={styles.companionItem}>
-                  <Text style={styles.companionIcon}>🌿</Text>
-                  <Text style={styles.companionName}>Basil - Repels pests, improves tomato flavor</Text>
+              {[
+                { icon: '🧪', name: 'NPK 14-14-14', amount: '50 kg per hectare', timing: 'Use when planting', note: 'Good for plant growth' },
+                { icon: '🍃', name: 'Organic compost', amount: '2 tons per hectare', timing: '2 weeks before planting', note: 'Makes soil better' },
+                { icon: '⚗️', name: 'Urea', amount: '25 kg per hectare', timing: '4 weeks after planting', note: 'Adds nitrogen for fruits' },
+              ].map((fert) => (
+                <View key={fert.name} style={styles.fertilizerCard}>
+                  <View style={styles.fertilizerHeader}>
+                    <Text style={styles.fertilizerIcon}>{fert.icon}</Text>
+                    <Text style={styles.fertilizerName}>{fert.name}</Text>
+                  </View>
+                  <View style={styles.fertilizerDetails}>
+                    <Text style={styles.fertilizerDetail}><Text style={styles.fertilizerLabel}>Amount: </Text>{fert.amount}</Text>
+                    <Text style={styles.fertilizerDetail}><Text style={styles.fertilizerLabel}>When: </Text>{fert.timing}</Text>
+                  </View>
+                  <Text style={styles.fertilizerNote}>{fert.note}</Text>
                 </View>
-                <View style={styles.companionItem}>
-                  <Text style={styles.companionIcon}>🥕</Text>
-                  <Text style={styles.companionName}>Carrots - Aerates soil, different root depth</Text>
-                </View>
-              </View>
-
-              {/* Bad Companions */}
-              <View style={styles.badCompanionCard}>
-                <Text style={styles.badCompanionTitle}>⚠️ Avoid Planting Together</Text>
-                <View style={styles.badCompanionItem}>
-                  <Text style={styles.companionIcon}>🌽</Text>
-                  <Text style={styles.badCompanionName}>Corn - Competes for nutrients and attracts pests</Text>
-                </View>
-                <View style={styles.badCompanionItem}>
-                  <Text style={styles.companionIcon}>🥔</Text>
-                  <Text style={styles.badCompanionName}>Potatoes - Risk of blight spreading between plants</Text>
-                </View>
-              </View>
+              ))}
             </View>
 
-            <TouchableOpacity style={styles.actionButton} onPress={startFarming}>
-              <Pickaxe size={24} color="#ffffff" />
+            <TouchableOpacity style={styles.actionButton} onPress={startFarming} activeOpacity={0.8}>
+              <Pickaxe size={26} color="#ffffff" />
               <Text style={styles.actionButtonText}>{t.startFarming}</Text>
             </TouchableOpacity>
           </>
         )}
       </>
   );
-
-  const renderTimelineTab = () => (
-    <>
-      {/* Active Crops Timeline */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Calendar size={24} color="#84c059" />
-          <Text style={styles.sectionTitle}>Active Crops</Text>
-        </View>
-        <FarmingTimeline
-          cropName="Tomato"
-          startDate="Aug 15, 2025"
-          totalDays={85}
-          currentDay={42}
-        />
-      </View>
-
-      <View style={styles.section}>
-        <FarmingTimeline
-          cropName="Eggplant"
-          startDate="Jul 1, 2025"
-          totalDays={80}
-          currentDay={65}
-        />
-      </View>
-
-      {/* Upcoming Tasks */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Pickaxe size={24} color="#84c059" />
-          <Text style={styles.sectionTitle}>Upcoming Tasks</Text>
-        </View>
-        <View style={styles.taskCard}>
-          <View style={styles.taskIconContainer}>
-            <Droplet size={20} color="#84c059" />
-          </View>
-          <View style={styles.taskInfo}>
-            <Text style={styles.taskTitle}>Irrigation Tomatoes</Text>
-            <Text style={styles.taskDate}>Tomorrow, 6:00 AM</Text>
-          </View>
-        </View>
-        <View style={styles.taskCard}>
-          <View style={styles.taskIconContainer}>
-            <Leaf size={20} color="#f59e0b" />
-          </View>
-          <View style={styles.taskInfo}>
-            <Text style={styles.taskTitle}>Fertilize Eggplant</Text>
-            <Text style={styles.taskDate}>In 3 days</Text>
-          </View>
-        </View>
-      </View>
-    </>
-  );
-
-  const renderHistoryTab = () => {
-    router.push('/(tabs)/history');
-    return null;
-  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -746,7 +799,7 @@ const FarmerScreen = () => {
               <Text style={styles.subtitle} numberOfLines={1}>{t.welcome}</Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.7} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
             <Text style={styles.logoutText}>{t.logout}</Text>
           </TouchableOpacity>
         </View>
@@ -754,79 +807,8 @@ const FarmerScreen = () => {
 
       {/* Scrollable Content */}
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {activeTab === 'home' && renderHomeTab()}
-        {activeTab === 'timeline' && renderTimelineTab()}
-        {activeTab === 'history' && renderHistoryTab()}
+        {renderHomeTab()}
       </ScrollView>
-
-      {/* Bottom Navigation */}
-      <View style={styles.bottomNav}>
-        <TouchableOpacity
-          style={[styles.navItem, activeTab === 'home' && styles.navItemActive]}
-          onPress={() => setActiveTab('home')}
-        >
-          <Home
-            size={24}
-            color={activeTab === 'home' ? '#84c059' : '#9ca3af'}
-            strokeWidth={activeTab === 'home' ? 2.5 : 2}
-            fill={activeTab === 'home' ? '#84c059' : 'none'}
-          />
-          <Text
-            style={[
-              styles.navText,
-              activeTab === 'home' && styles.navTextActive,
-            ]}
-          >
-            Home
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.navItem, activeTab === 'timeline' && styles.navItemActive]}
-          onPress={() => setActiveTab('timeline')}
-        >
-          <BarChart3
-            size={24}
-            color={activeTab === 'timeline' ? '#84c059' : '#9ca3af'}
-            strokeWidth={activeTab === 'timeline' ? 2.5 : 2}
-          />
-          <Text
-            style={[
-              styles.navText,
-              activeTab === 'timeline' && styles.navTextActive,
-            ]}
-          >
-            Timeline
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => router.push('/(tabs)/ai')}
-        >
-          <BrainCircuit size={24} color="#9ca3af" strokeWidth={2} />
-          <Text style={styles.navText}>AI</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.navItem, activeTab === 'history' && styles.navItemActive]}
-          onPress={() => router.push('/(tabs)/history')}
-        >
-          <History
-            size={24}
-            color={activeTab === 'history' ? '#84c059' : '#9ca3af'}
-            strokeWidth={activeTab === 'history' ? 2.5 : 2}
-          />
-          <Text
-            style={[
-              styles.navText,
-              activeTab === 'history' && styles.navTextActive,
-            ]}
-          >
-            History
-          </Text>
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 };
@@ -838,7 +820,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 120,
+    paddingBottom: 32,
     gap: 24,
   },
   headerContainer: {
@@ -874,18 +856,19 @@ const styles = StyleSheet.create({
     color: '#ffffff',
   },
   subtitle: {
-    fontSize: 13,
+    fontSize: 15,
     fontFamily: 'Inter_600SemiBold',
     color: '#ffffff',
   },
   logoutButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    minHeight: 44,
+    borderRadius: 12,
   },
   logoutText: {
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: 'Inter_600SemiBold',
     color: '#ffffff',
   },
@@ -896,23 +879,37 @@ const styles = StyleSheet.create({
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    minHeight: 48,
+    borderRadius: 24,
     borderWidth: 2,
     borderColor: '#84c059',
   },
   pillText: {
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: 'Inter_600SemiBold',
     color: '#000',
   },
+  stepBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#84c059',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  stepBadgeText: {
+    fontSize: 13,
+    fontFamily: 'Inter_700Bold',
+    color: '#ffffff',
+  },
   section: {
     backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 16,
-    gap: 12,
+    borderRadius: 16,
+    padding: 20,
+    gap: 14,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -925,22 +922,24 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontFamily: 'Inter_700Bold',
     color: '#000',
   },
   sectionDescription: {
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: 'Inter_400Regular',
     color: '#4a5568',
+    lineHeight: 24,
   },
   farmCard: {
     flexDirection: 'row',
-    padding: 14,
+    padding: 18,
+    minHeight: 72,
     gap: 12,
     backgroundColor: '#ffffff',
     borderRadius: 12,
-    marginBottom: 8,
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -963,36 +962,36 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   farmName: {
-    fontSize: 16,
+    fontSize: 18,
     fontFamily: 'Inter_600SemiBold',
     color: '#000',
   },
   farmDetails: {
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: 'Inter_400Regular',
     color: '#4a5568',
-  },
-  farmLocation: {
-    fontSize: 12,
-    fontFamily: 'Inter_400Regular',
-    color: '#718096',
   },
   actionButton: {
     backgroundColor: '#84c059',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    padding: 16,
-    borderRadius: 24,
+    gap: 10,
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    minHeight: 56,
+    borderRadius: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
   },
+  actionButtonDisabled: {
+    opacity: 0.7,
+  },
   actionButtonText: {
-    fontSize: 16,
+    fontSize: 18,
     fontFamily: 'Inter_700Bold',
     color: '#ffffff',
   },
@@ -1029,7 +1028,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   healthElement: {
-    fontSize: 16,
+    fontSize: 17,
     fontFamily: 'Inter_600SemiBold',
     color: '#1f2937',
   },
@@ -1086,12 +1085,12 @@ const styles = StyleSheet.create({
     fontSize: 24,
   },
   summaryTitle: {
-    fontSize: 18,
+    fontSize: 19,
     fontFamily: 'Inter_600SemiBold',
     color: '#000',
   },
   summaryText: {
-    fontSize: 16,
+    fontSize: 17,
     fontFamily: 'Inter_400Regular',
     color: '#4a5568',
     lineHeight: 24,
@@ -1129,12 +1128,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   tempValue: {
-    fontSize: 24,
+    fontSize: 28,
     fontFamily: 'Inter_600SemiBold',
     color: '#000',
   },
   weatherCondition: {
-    fontSize: 16,
+    fontSize: 18,
     fontFamily: 'Inter_500Medium',
     color: '#6b7280',
   },
@@ -1173,18 +1172,19 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   recommendationTitle: {
-    fontSize: 17,
+    fontSize: 19,
     fontFamily: 'Inter_600SemiBold',
     color: '#166534',
   },
   recommendationText: {
-    fontSize: 15,
+    fontSize: 16,
     fontFamily: 'Inter_400Regular',
     color: '#15803d',
     lineHeight: 22,
   },
   cropCard: {
-    padding: 14,
+    padding: 18,
+    minHeight: 80,
     backgroundColor: '#ffffff',
     borderRadius: 12,
     gap: 10,
@@ -1203,6 +1203,22 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  cropCardPrediction: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#84c059',
+  },
+  cropConfidence: {
+    marginTop: 4,
+  },
+  cropConfidenceText: {
+    fontSize: 13,
+    fontFamily: 'Inter_500Medium',
+    color: '#15803d',
+  },
+  cropConfidenceHighlight: {
+    color: '#166534',
+    fontFamily: 'Inter_700Bold',
+  },
   cropHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1219,7 +1235,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   cropName: {
-    fontSize: 20,
+    fontSize: 22,
     fontFamily: 'Inter_600SemiBold',
     color: '#000',
     flex: 1,
@@ -1238,68 +1254,58 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   cropDescription: {
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: 'Inter_400Regular',
     color: '#4a5568',
     lineHeight: 20,
   },
-  companionCard: {
-    backgroundColor: '#f3eee6',
-    padding: 16,
-    borderRadius: 12,
-    gap: 12,
-  },
-  companionTitle: {
-    fontSize: 16,
-    fontFamily: 'Inter_600SemiBold',
-    color: '#000',
-  },
-  companionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    padding: 12,
-    backgroundColor: '#f0fdf4',
-    borderRadius: 8,
-  },
-  companionIcon: {
-    fontSize: 32,
-  },
-  companionName: {
-    fontSize: 14,
-    fontFamily: 'Inter_400Regular',
-    color: '#065f46',
-    flex: 1,
-  },
-  badCompanionCard: {
+  fertilizerCard: {
     backgroundColor: '#ffffff',
     borderRadius: 12,
-    padding: 16,
-    gap: 12,
+    padding: 18,
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 3,
     elevation: 2,
+    borderLeftWidth: 4,
+    borderLeftColor: '#84c059',
   },
-  badCompanionTitle: {
-    fontSize: 16,
-    fontFamily: 'Inter_600SemiBold',
-    color: '#991b1b',
-  },
-  badCompanionItem: {
+  fertilizerHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    padding: 12,
-    backgroundColor: '#fef2f2',
-    borderRadius: 8,
+    gap: 12,
+    marginBottom: 8,
   },
-  badCompanionName: {
-    fontSize: 14,
+  fertilizerIcon: {
+    fontSize: 28,
+  },
+  fertilizerName: {
+    fontSize: 19,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#000',
+  },
+  fertilizerDetails: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 6,
+  },
+  fertilizerDetail: {
+    fontSize: 16,
     fontFamily: 'Inter_400Regular',
-    color: '#991b1b',
-    flex: 1,
+    color: '#4a5568',
+  },
+  fertilizerLabel: {
+    fontFamily: 'Inter_600SemiBold',
+    color: '#374151',
+  },
+  fertilizerNote: {
+    fontSize: 15,
+    fontFamily: 'Inter_400Regular',
+    color: '#6b7280',
+    lineHeight: 20,
   },
   taskCard: {
     flexDirection: 'row',
@@ -1372,7 +1378,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   loadingText: {
-    fontSize: 16,
+    fontSize: 18,
     fontFamily: 'Inter_500Medium',
     color: '#6b7280',
   },
@@ -1384,7 +1390,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   emptyText: {
-    fontSize: 16,
+    fontSize: 18,
     fontFamily: 'Inter_500Medium',
     color: '#6b7280',
     textAlign: 'center',
