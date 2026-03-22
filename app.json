@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "tanim-app",
-    "slug": "tanim-app",
+    "name": "tanim",
+    "slug": "tanim",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -19,7 +19,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.cpe4thesis.tanim"
     },
     "web": {
       "output": "static",
@@ -43,6 +44,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "00bf69aa-58d2-4ac0-98c4-736e57a748f0"
+      }
+    },
+    "owner": "cpe4thesis"
   }
 }
