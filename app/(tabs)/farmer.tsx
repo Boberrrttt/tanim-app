@@ -14,11 +14,9 @@ import {
   MapPin,
   ChartLine,
   Umbrella,
-  Leaf,
   Droplet,
   Wind,
   Clover,
-  Pickaxe,
   BrainCircuit,
   Globe,
 } from 'lucide-react-native';
@@ -26,7 +24,6 @@ import { useRouter } from 'expo-router';
 import { getFarms } from '../../services/farm.service';
 import { GetWeatherToday } from '../../services/weather.service';
 import { getSoilHealth } from '@/services/soil-health.service';
-import { predict } from '@/services/ml.service';
 import { IFarm } from '../../types/farm.types';
 import { ISoilHealth } from '@/types/soil-health.types';
 
@@ -53,17 +50,11 @@ const FarmerScreen = () => {
   const [selectedFarm, setSelectedFarm] = useState<string | null>(null);
   const [showSoilWeather, setShowSoilWeather] = useState(false);
   const [showCrops, setShowCrops] = useState(false);
-  const [selectedCrop, setSelectedCrop] = useState<string | null>(null);
-  const [showSuggestions, setShowSuggestions] = useState(false);
   const [soilHealth, setSoilHealth] = useState<ISoilHealth | null>(null);
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [farms, setFarms] = useState<IFarm[]>([]);
   const [loading, setLoading] = useState(true);
-  const [generatingPlan, setGeneratingPlan] = useState(false);
-  const [predictionResult, setPredictionResult] = useState<{
-    prediction: string;
-    probabilities?: { crop_class: string; probability: number }[];
-  } | null>(null);
+  const [isFetchingFarmDetails, setIsFetchingFarmDetails] = useState(false);
 
   useEffect(() => {
     const getDetails = async () => {
@@ -82,12 +73,6 @@ const FarmerScreen = () => {
               firstFarm.farm_location.longitude
             );
             setWeather(weather);
-          }
-          
-          // Get soil health for first farm
-          if (firstFarm?.farm_id) {
-            const soilHealthResponse = await getSoilHealth({farm_id: firstFarm.farm_id});
-            setSoilHealth(soilHealthResponse?.data?.[0] || null);
           }
         }
       } catch (error) {
@@ -112,18 +97,18 @@ const FarmerScreen = () => {
       myFarms: 'My Farms',
       selectFarmDetails: 'Tap your farm to see recommendations.',
       selectFarmButton: 'Continue',
+      loadingFarmDetails: 'Loading soil & weather...',
       soilHealth: 'Soil Health',
       summary: 'Quick summary',
       lowSalinity: 'Good for vegetables. Soil holds water well.',
       weatherForecast: 'Weather Today',
       todayIs: `Today: ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`,
-      generateAIPlan: 'Get Crop Suggestions',
-      generatingPlan: 'Getting suggestions...',
-      recommendedCrops: 'Best Crops for Your Land',
-      selectStartingCrop: 'Tap one crop to see fertilizer advice.',
-      selectCropButton: 'Continue',
+      recommendedCrops: 'Best Crop Suggestion',
+      bestCropFromTest: 'From your latest soil health test.',
+      suggestionKicker: 'Recommended for your soil',
+      suggestionEmptyHint: 'Complete a soil health test for this farm to see a recommendation.',
+      suggestionEmptyTitle: 'Not available yet',
       fertilizerSuggestions: 'Fertilizer Advice',
-      startFarming: 'Done',
       loadingFarms: 'Loading...',
       noFarms: 'No farms yet. Add a farm to start.',
       good: 'Good',
@@ -141,18 +126,18 @@ const FarmerScreen = () => {
       myFarms: 'Aking mga Bukid',
       selectFarmDetails: 'Pindutin ang iyong bukid para makita ang mungkahi.',
       selectFarmButton: 'Magpatuloy',
+      loadingFarmDetails: 'Nilo-load ang lupa at panahon...',
       soilHealth: 'Kalusugan ng Lupa',
       summary: 'Buod',
       lowSalinity: 'Maganda para sa gulay. Maganda ang lupa.',
       weatherForecast: 'Panahon Ngayon',
       todayIs: `Ngayon: ${new Date().toLocaleDateString('fil-PH', { weekday: 'long', month: 'short', day: 'numeric' })}`,
-      generateAIPlan: 'Kumuha ng Mungkahing Pananim',
-      generatingPlan: 'Kumukuha ng mungkahi...',
-      recommendedCrops: 'Pinakamagandang Pananim sa Iyong Lupa',
-      selectStartingCrop: 'Pindutin ang isang pananim para makita ang pataba.',
-      selectCropButton: 'Magpatuloy',
+      recommendedCrops: 'Pinakamahusay na Mungkahi sa Pananim',
+      bestCropFromTest: 'Mula sa iyong pinakabagong pagsusuri sa lupa.',
+      suggestionKicker: 'Inirerekomenda sa iyong lupa',
+      suggestionEmptyHint: 'Kumpletuhin ang pagsusuri sa lupa ng bukid na ito para makita ang mungkahi.',
+      suggestionEmptyTitle: 'Wala pang datos',
       fertilizerSuggestions: 'Payo sa Pataba',
-      startFarming: 'Tapos',
       loadingFarms: 'Naglo-load...',
       noFarms: 'Walang bukid. Magdagdag ng bukid para magsimula.',
       good: 'Maganda',
@@ -198,50 +183,6 @@ const FarmerScreen = () => {
     }
   };
 
-  const crops = [
-    {
-      id: 'tomato',
-      name: 'Tomato',
-      icon: '🍅',
-      category: 'Fruit Vegetable',
-      description: 'Thrives in clay-loam soil with good drainage. High potassium supports fruit development.',
-    },
-    {
-      id: 'eggplant',
-      name: 'Eggplant',
-      icon: '🍆',
-      category: 'Fruit Vegetable',
-      description: 'Excellent nitrogen uptake matches your soil profile. Heat-tolerant variety perfect for current season.',
-    },
-  ];
-
-  const CROP_LOOKUP: Record<string, { icon: string; description: string }> = {
-    tomato: { icon: '🍅', description: 'Thrives in clay-loam soil with good drainage. High potassium supports fruit development.' },
-    eggplant: { icon: '🍆', description: 'Excellent nitrogen uptake matches your soil profile. Heat-tolerant variety perfect for current season.' },
-    chickpea: { icon: '🫘', description: 'Drought-tolerant legume. Fixes nitrogen in soil. Ideal for warm, dry conditions.' },
-    kidneybeans: { icon: '🫘', description: 'Protein-rich legume. Prefers well-drained soil and moderate temperatures.' },
-    pigeonpeas: { icon: '🫘', description: 'Drought-resistant pulse crop. Good for intercropping and soil improvement.' },
-    mothbeans: { icon: '🫘', description: 'Hardy legume for arid regions. Grows well in sandy loam soils.' },
-    mungbean: { icon: '🫘', description: 'Quick-growing legume. Fixes nitrogen and improves soil fertility.' },
-    blackgram: { icon: '🫘', description: 'Nutritious pulse. Suited to warm climates and well-drained soils.' },
-    lentil: { icon: '🫘', description: 'Cool-season legume. High protein, good for crop rotation.' },
-    rice: { icon: '🍚', description: 'Staple grain. Requires flooded or irrigated conditions. Tropical to subtropical.' },
-    wheat: { icon: '🌾', description: 'Cool-season cereal. Prefers temperate climate and fertile soil.' },
-    cotton: { icon: '🌾', description: 'Fiber crop. Needs long warm season and adequate moisture.' },
-    jute: { icon: '🌿', description: 'Fiber crop. Thrives in hot, humid conditions with plenty of water.' },
-    coffee: { icon: '☕', description: 'Perennial crop. Prefers tropical highlands, shade, and well-drained soil.' },
-    coconut: { icon: '🥥', description: 'Tropical palm. Needs coastal or humid tropical conditions.' },
-    papaya: { icon: '🍈', description: 'Tropical fruit. Fast-growing, needs warm weather and good drainage.' },
-    orange: { icon: '🍊', description: 'Citrus fruit. Prefers subtropical climate and well-drained soil.' },
-    apple: { icon: '🍎', description: 'Temperate fruit. Requires cool winters and moderate summers.' },
-    muskmelon: { icon: '🍈', description: 'Warm-season melon. Needs plenty of sun and well-drained soil.' },
-    watermelon: { icon: '🍉', description: 'Heat-loving vine crop. Requires long warm season and sandy soil.' },
-    grapes: { icon: '🍇', description: 'Vine crop. Prefers sunny slopes and well-drained soil.' },
-    mango: { icon: '🥭', description: 'Tropical fruit tree. Needs warm climate and deep, fertile soil.' },
-    banana: { icon: '🍌', description: 'Tropical herb. Requires warm, humid conditions and rich soil.' },
-    pomegranate: { icon: '🍎', description: 'Drought-tolerant fruit. Suited to arid and semi-arid regions.' },
-  };
-
   const handleLogout = () => {
     router.push('/login');
   };
@@ -284,138 +225,62 @@ const FarmerScreen = () => {
     };
   };
 
-  // Generate random soil health data
-  const generateSoilHealth = (farmId: string): ISoilHealth => {
-    // Different seed ranges for different farms to create variety
-    const farmSeeds = {
-      kalinawan: { min: 65, max: 90 },
-      malasag: { min: 55, max: 85 },
-    };
-
-    const seed = farmSeeds[farmId as keyof typeof farmSeeds] || { min: 60, max: 85 };
-    
-    const getRandomInRange = (min: number, max: number) => {
-      return Math.floor(Math.random() * (max - min + 1)) + min;
-    };
-
-    const nitrogen = getRandomInRange(seed.min, seed.max);
-    const phosphorus = getRandomInRange(seed.min - 10, seed.max - 10);
-    const potassium = getRandomInRange(seed.min, seed.max + 5);
-    const salinity = getRandomInRange(10, 30);
-    const ph = parseFloat((6.0 + (getRandomInRange(60, 75) / 100 * 2.0)).toFixed(1));
-    const temperature = getRandomInRange(20, 30);
-    const moisture = getRandomInRange(seed.min + 5, seed.max);
-
-    return {
-      nitrogen,
-      phosphorus,
-      potassium,
-      ph,
-      salinity: parseFloat((salinity / 100 * 6.5).toFixed(1)),
-      temperature,
-      moisture,
-      farm_id: farmId,
-      classification: 'Good'
-    };
-  };
-
   const selectFarm = (farmId: string) => {
     if (selectedFarm === farmId) {
       setSelectedFarm(null);
       setShowSoilWeather(false);
       setShowCrops(false);
-      setSelectedCrop(null);
-      setShowSuggestions(false);
       setSoilHealth(null);
     } else {
       setSelectedFarm(farmId);
-      // Generate new soil health data for the selected farm
-      setSoilHealth(generateSoilHealth(farmId));
+      setShowSoilWeather(false);
+      setShowCrops(false);
+      setSoilHealth(null);
     }
   };
 
   const confirmFarmSelection = async () => {
-    if (selectedFarm) {
-      setShowSoilWeather(true);
-      try {
-        const selectedFarmData = farms.find(farm => farm.farm_id === selectedFarm);
-        if (selectedFarmData?.farm_location) {
-          const weatherData = await GetWeatherToday(
-            selectedFarmData.farm_location.latitude,
-            selectedFarmData.farm_location.longitude
-          );
-          setWeather(weatherData.data);
-        }
-      } catch (error) {
-        console.error('Error fetching weather:', error);
-        // Fallback to mock data if API fails
-        setWeather(generateWeather());
-      }
-    }
-  };
+    if (!selectedFarm) return;
 
-  const generateAIPlan = async () => {
-    if (!soilHealth) {
-      Alert.alert('Wait', 'Please tap a farm first.');
-      return;
-    }
-
-    setGeneratingPlan(true);
-    setPredictionResult(null);
+    setIsFetchingFarmDetails(true);
+    const selectedFarmData = farms.find(farm => farm.farm_id === selectedFarm);
 
     try {
-      // Build features: [N, P, K, ph, temperature, humidity] per API schema
-      const tempCelsius = weather
-        ? kelvinToCelsius(weather.temperature)
-        : soilHealth.temperature;
-      const humidity = weather?.humidity ?? soilHealth.moisture;
+      await Promise.all([
+        (async () => {
+          try {
+            if (selectedFarmData?.farm_location) {
+              const weatherData = await GetWeatherToday(
+                selectedFarmData.farm_location.latitude,
+                selectedFarmData.farm_location.longitude
+              );
+              setWeather(weatherData.data);
+            }
+          } catch (error) {
+            console.error('Error fetching weather:', error);
+            setWeather(generateWeather());
+          }
+        })(),
+        (async () => {
+          try {
+            const soilRes = await getSoilHealth({ farm_id: selectedFarm });
+            setSoilHealth(soilRes?.data?.[0] ?? null);
+          } catch (error) {
+            console.error('Error fetching soil health:', error);
+            setSoilHealth(null);
+            Alert.alert(
+              'Soil test',
+              'Could not load soil health for this farm. Crop suggestion will be unavailable until a test is available.'
+            );
+          }
+        })(),
+      ]);
 
-      const features = [
-        soilHealth.nitrogen,
-        soilHealth.phosphorus,
-        soilHealth.potassium,
-        soilHealth.ph,
-        tempCelsius,
-        humidity,
-      ];
-
-
-      const result = await predict(features);
-      const data = result.data ?? result;
-      setPredictionResult({
-        prediction: data.prediction ?? '',
-        probabilities: data.probabilities ?? undefined,
-      });
-      setShowCrops(true);
-    } catch (error) {
-      console.error('Prediction error:', error);
-      Alert.alert(
-        'Try Again',
-        'Could not get suggestions. Showing common crops instead.'
-      );
+      setShowSoilWeather(true);
       setShowCrops(true);
     } finally {
-      setGeneratingPlan(false);
+      setIsFetchingFarmDetails(false);
     }
-  };
-
-  const selectCrop = (cropId: string) => {
-    if (selectedCrop === cropId) {
-      setSelectedCrop(null);
-      setShowSuggestions(false);
-    } else {
-      setSelectedCrop(cropId);
-    }
-  };
-
-  const confirmCropSelection = () => {
-    if (selectedCrop) {
-      setShowSuggestions(true);
-    }
-  };
-
-  const startFarming = () => {
-    Alert.alert('Saved', 'Your plan has been saved.');
   };
 
   const HealthCard = ({ element, symbol, percent, status, statusColor, actualValue, unit, maxValue }: any) => (
@@ -440,7 +305,17 @@ const FarmerScreen = () => {
     </View>
   );
 
-  const renderHomeTab = () => (
+  const renderHomeTab = () => {
+    const classificationStr =
+      soilHealth?.classification != null
+        ? String(soilHealth.classification).trim()
+        : '';
+    const hasCropSuggestion = classificationStr.length > 0;
+    const suggestionDisplay = hasCropSuggestion
+      ? classificationStr
+      : t.suggestionEmptyTitle;
+
+    return (
       <>
         {/* Language toggle */}
         <View style={styles.pillsContainer}>
@@ -491,9 +366,23 @@ const FarmerScreen = () => {
         </View>
 
         {selectedFarm && !showSoilWeather && (
-          <TouchableOpacity style={styles.actionButton} onPress={confirmFarmSelection} activeOpacity={0.8}>
-            <MapPin size={26} color="#ffffff" />
-            <Text style={styles.actionButtonText}>{t.selectFarmButton}</Text>
+          <TouchableOpacity
+            style={[styles.actionButton, isFetchingFarmDetails && styles.actionButtonDisabled]}
+            onPress={confirmFarmSelection}
+            disabled={isFetchingFarmDetails}
+            activeOpacity={0.8}
+          >
+            {isFetchingFarmDetails ? (
+              <>
+                <ActivityIndicator size="small" color="#ffffff" />
+                <Text style={styles.actionButtonText}>{t.loadingFarmDetails}</Text>
+              </>
+            ) : (
+              <>
+                <MapPin size={26} color="#ffffff" />
+                <Text style={styles.actionButtonText}>{t.selectFarmButton}</Text>
+              </>
+            )}
           </TouchableOpacity>
         )}
 
@@ -640,26 +529,6 @@ const FarmerScreen = () => {
               )}
             </View>
 
-            {!showCrops && (
-              <TouchableOpacity
-                style={[styles.actionButton, generatingPlan && styles.actionButtonDisabled]}
-                onPress={generateAIPlan}
-                disabled={generatingPlan}
-                activeOpacity={0.8}
-              >
-                {generatingPlan ? (
-                  <>
-                    <ActivityIndicator size="small" color="#ffffff" />
-                    <Text style={styles.actionButtonText}>{t.generatingPlan}</Text>
-                  </>
-                ) : (
-                  <>
-                    <BrainCircuit size={26} color="#ffffff" />
-                    <Text style={styles.actionButtonText}>{t.generateAIPlan}</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            )}
           </>
         )}
 
@@ -667,88 +536,60 @@ const FarmerScreen = () => {
           <>
             <View style={styles.divider} />
 
-            {/* Step 3: Crops & Fertilizer */}
+            {/* Step 3: Best crop from soil test & fertilizer */}
             <View style={styles.section}>
               <View style={styles.stepBadge}>
                 <Text style={styles.stepBadgeText}>{t.step3}</Text>
               </View>
               <View style={styles.sectionHeader}>
-                <Leaf size={28} color="#84c059" />
+                <ChartLine size={28} color="#84c059" />
                 <Text style={styles.sectionTitle}>{t.recommendedCrops}</Text>
               </View>
-              <Text style={styles.sectionDescription}>{t.selectStartingCrop}</Text>
 
-              {(predictionResult?.probabilities && predictionResult.probabilities.length > 0
-                ? predictionResult.probabilities.map((item) => {
-                    const id = item.crop_class?.toLowerCase().replace(/\s/g, '') ?? '';
-                    const lookup = CROP_LOOKUP[id] ?? CROP_LOOKUP[item.crop_class?.toLowerCase() ?? ''];
-                    const icon = lookup?.icon ?? '🌱';
-                    const description = lookup?.description ?? `AI-recommended based on your soil and weather conditions.`;
-                    const prob = item.probability != null ? (item.probability * 100).toFixed(0) : '—';
-                    const isPrediction = item.crop_class?.toLowerCase() === predictionResult.prediction?.toLowerCase();
-                    const displayName = item.crop_class
-                      ? item.crop_class.charAt(0).toUpperCase() + item.crop_class.slice(1).toLowerCase()
-                      : '';
-                    return (
-                      <TouchableOpacity
-                        key={item.crop_class}
-                        style={[
-                          styles.cropCard,
-                          selectedCrop === id && styles.cropCardSelected,
-                          isPrediction && styles.cropCardPrediction,
-                        ]}
-                        onPress={() => selectCrop(id)}
-                      >
-                        <View style={styles.cropHeader}>
-                          <Text style={styles.cropIcon}>{icon}</Text>
-                          <View style={styles.cropTitleContainer}>
-                            <Text style={styles.cropName}>
-                              {displayName}
-                              {isPrediction && ' ★'}
-                            </Text>
-                            <View style={styles.cropConfidence}>
-                              <Text style={[styles.cropConfidenceText, isPrediction && styles.cropConfidenceHighlight]}>
-                                {prob}% match
-                              </Text>
-                            </View>
-                          </View>
-                        </View>
-                        <Text style={styles.cropDescription}>{description}</Text>
-                      </TouchableOpacity>
-                    );
-                  })
-                : crops.map((crop) => (
-                    <TouchableOpacity
-                      key={crop.id}
-                      style={[
-                        styles.cropCard,
-                        selectedCrop === crop.id && styles.cropCardSelected,
-                      ]}
-                      onPress={() => selectCrop(crop.id)}
-                    >
-                      <View style={styles.cropHeader}>
-                        <Text style={styles.cropIcon}>{crop.icon}</Text>
-                        <View style={styles.cropTitleContainer}>
-                          <Text style={styles.cropName}>{crop.name}</Text>
-                        </View>
-                      </View>
-                      <Text style={styles.cropDescription}>{crop.description}</Text>
-                    </TouchableOpacity>
-                  ))
-              )}
+              <View
+                style={[
+                  styles.suggestionHero,
+                  hasCropSuggestion ? styles.suggestionHeroActive : styles.suggestionHeroEmpty,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.suggestionHeroTopBar,
+                    !hasCropSuggestion && styles.suggestionHeroTopBarMuted,
+                  ]}
+                />
+                <View style={styles.suggestionHeroInner}>
+                  <Text
+                    style={[
+                      styles.suggestionKicker,
+                      !hasCropSuggestion && styles.suggestionKickerMuted,
+                    ]}
+                  >
+                    {t.suggestionKicker}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.suggestionTitle,
+                      !hasCropSuggestion && styles.suggestionTitleEmpty,
+                    ]}
+                    numberOfLines={3}
+                  >
+                    {suggestionDisplay}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.suggestionFootnote,
+                      hasCropSuggestion
+                        ? styles.suggestionFootnoteWithRule
+                        : styles.suggestionFootnoteMuted,
+                    ]}
+                  >
+                    {hasCropSuggestion ? t.bestCropFromTest : t.suggestionEmptyHint}
+                  </Text>
+                </View>
+              </View>
             </View>
 
-            {selectedCrop && !showSuggestions && (
-              <TouchableOpacity style={styles.actionButton} onPress={confirmCropSelection} activeOpacity={0.8}>
-                <Clover size={26} color="#ffffff" />
-                <Text style={styles.actionButtonText}>{t.selectCropButton}</Text>
-              </TouchableOpacity>
-            )}
-          </>
-        )}
-
-        {showSuggestions && (
-          <>
             <View style={styles.divider} />
 
             <View style={styles.section}>
@@ -758,13 +599,12 @@ const FarmerScreen = () => {
               </View>
 
               {[
-                { icon: '🧪', name: 'NPK 14-14-14', amount: '50 kg per hectare', timing: 'Use when planting', note: 'Good for plant growth' },
-                { icon: '🍃', name: 'Organic compost', amount: '2 tons per hectare', timing: '2 weeks before planting', note: 'Makes soil better' },
-                { icon: '⚗️', name: 'Urea', amount: '25 kg per hectare', timing: '4 weeks after planting', note: 'Adds nitrogen for fruits' },
+                { name: 'NPK 14-14-14', amount: '50 kg per hectare', timing: 'Use when planting', note: 'Good for plant growth' },
+                { name: 'Organic compost', amount: '2 tons per hectare', timing: '2 weeks before planting', note: 'Makes soil better' },
+                { name: 'Urea', amount: '25 kg per hectare', timing: '4 weeks after planting', note: 'Adds nitrogen for fruits' },
               ].map((fert) => (
                 <View key={fert.name} style={styles.fertilizerCard}>
                   <View style={styles.fertilizerHeader}>
-                    <Text style={styles.fertilizerIcon}>{fert.icon}</Text>
                     <Text style={styles.fertilizerName}>{fert.name}</Text>
                   </View>
                   <View style={styles.fertilizerDetails}>
@@ -775,15 +615,11 @@ const FarmerScreen = () => {
                 </View>
               ))}
             </View>
-
-            <TouchableOpacity style={styles.actionButton} onPress={startFarming} activeOpacity={0.8}>
-              <Pickaxe size={26} color="#ffffff" />
-              <Text style={styles.actionButtonText}>{t.startFarming}</Text>
-            </TouchableOpacity>
           </>
         )}
       </>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -1206,6 +1042,73 @@ const styles = StyleSheet.create({
   cropCardPrediction: {
     borderLeftWidth: 4,
     borderLeftColor: '#84c059',
+  },
+  suggestionHero: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e7e5e4',
+    backgroundColor: '#fafaf9',
+  },
+  suggestionHeroActive: {
+    borderColor: '#bbf7d0',
+    backgroundColor: '#f7fee7',
+  },
+  suggestionHeroEmpty: {
+    borderColor: '#e5e7eb',
+    backgroundColor: '#f9fafb',
+  },
+  suggestionHeroTopBar: {
+    height: 5,
+    backgroundColor: '#84c059',
+  },
+  suggestionHeroTopBarMuted: {
+    backgroundColor: '#d1d5db',
+  },
+  suggestionHeroInner: {
+    paddingVertical: 22,
+    paddingHorizontal: 20,
+    gap: 6,
+  },
+  suggestionKicker: {
+    fontSize: 11,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#4d7c0f',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  suggestionKickerMuted: {
+    color: '#9ca3af',
+  },
+  suggestionTitle: {
+    fontSize: 28,
+    fontFamily: 'Inter_700Bold',
+    color: '#14532d',
+    lineHeight: 34,
+    letterSpacing: -0.4,
+  },
+  suggestionTitleEmpty: {
+    fontSize: 22,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#9ca3af',
+    letterSpacing: 0,
+    lineHeight: 28,
+  },
+  suggestionFootnote: {
+    fontSize: 15,
+    fontFamily: 'Inter_400Regular',
+    color: '#4b5563',
+    lineHeight: 22,
+    marginTop: 6,
+  },
+  suggestionFootnoteWithRule: {
+    paddingTop: 14,
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(132, 192, 89, 0.35)',
+  },
+  suggestionFootnoteMuted: {
+    color: '#9ca3af',
   },
   cropConfidence: {
     marginTop: 4,

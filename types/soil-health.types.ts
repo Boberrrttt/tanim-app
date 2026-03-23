@@ -7,5 +7,7 @@ export interface ISoilHealth {
     temperature: number;
     moisture: number;
     farm_id: string;
-    classification: string;
+    classification: string | number;
+    test_id?: string;
+    created_at?: string;
 }
