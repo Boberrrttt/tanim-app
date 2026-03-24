@@ -301,12 +301,9 @@ export default function FarmDetailsScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Soil Health */}
         <View style={styles.section}>
-          <View style={styles.stepBadge}>
-            <Text style={styles.stepBadgeText}>Step 1</Text>
-          </View>
-          <View style={styles.sectionHeader}>
-            <ChartLine size={28} color="#84c059" />
-            <Text style={styles.sectionTitle}>Soil Health</Text>
+            <View style={styles.sectionHeader}>
+              <ChartLine size={28} color="#84c059" />
+              <Text style={styles.sectionTitle}>Soil Health</Text>
           </View>
 
           {soilHealth ? (
@@ -445,9 +442,6 @@ export default function FarmDetailsScreen() {
 
         {/* Best Crop Suggestion - Top 3 */}
         <View style={styles.section}>
-          <View style={styles.stepBadge}>
-            <Text style={styles.stepBadgeText}>Step 2</Text>
-          </View>
           <View style={styles.sectionHeader}>
             <ChartLine size={28} color="#84c059" />
             <Text style={styles.sectionTitle}>Top Crop Suggestions</Text>
@@ -585,19 +579,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: fontFamily.medium,
     color: '#6b7280',
-  },
-  stepBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#84c059',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  stepBadgeText: {
-    fontSize: 13,
-    fontFamily: fontFamily.bold,
-    color: '#ffffff',
   },
   section: {
     backgroundColor: '#ffffff',

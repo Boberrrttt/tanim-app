@@ -63,9 +63,6 @@ const FarmerScreen = () => {
       {/* Scrollable Content */}
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.section}>
-          <View style={styles.stepBadge}>
-            <Text style={styles.stepBadgeText}>Step 1</Text>
-          </View>
           <View style={styles.sectionHeader}>
             <MapPin size={28} color="#84c059" />
             <Text style={styles.sectionTitle}>My Farms</Text>
@@ -172,19 +169,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: fontFamily.semibold,
     color: colors.white,
-  },
-  stepBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#84c059',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  stepBadgeText: {
-    fontSize: 13,
-    fontFamily: fontFamily.bold,
-    color: '#ffffff',
   },
   section: {
     backgroundColor: '#ffffff',
