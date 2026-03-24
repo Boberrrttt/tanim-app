@@ -65,7 +65,7 @@ const Index = () => {
         {/* Logo Icon */}
         <View style={styles.logoContainer}>
           <View style={styles.logoCircle}>
-            <Sprout size={80} color="#ffffff" strokeWidth={2.5} />
+            <Sprout size={64} color="#ffffff" strokeWidth={2.5} />
           </View>
         </View>
 
@@ -94,49 +94,47 @@ const styles = StyleSheet.create({
   },
   content: {
     alignItems: 'center',
-    gap: 20,
+    gap: 24,
   },
   logoContainer: {
-    marginBottom: 20,
+    marginBottom: 8,
   },
   logoCircle: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    width: 140,
+    height: 140,
+    borderRadius: 70,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 4,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
   },
   appName: {
-    fontSize: 48,
-    fontFamily: 'Inter_700Bold',
+    fontSize: 44,
+    fontFamily: 'PlusJakartaSans_700Bold',
     color: '#ffffff',
-    letterSpacing: 1,
-  },
-  tagline: {
-    fontSize: 18,
-    fontFamily: 'Inter_500Medium',
-    color: 'rgba(255, 255, 255, 0.9)',
     letterSpacing: 0.5,
   },
+  tagline: {
+    fontSize: 16,
+    fontFamily: 'PlusJakartaSans_500Medium',
+    color: 'rgba(255, 255, 255, 0.9)',
+    letterSpacing: 0.3,
+  },
   decorativeBar: {
-    width: 80,
-    height: 4,
+    width: 64,
+    height: 3,
     backgroundColor: 'rgba(255, 255, 255, 0.6)',
     borderRadius: 2,
-    marginTop: 10,
   },
   footer: {
     position: 'absolute',
-    bottom: 50,
+    bottom: 48,
   },
   footerText: {
     fontSize: 14,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
     color: 'rgba(255, 255, 255, 0.8)',
-    letterSpacing: 0.5,
   },
 });
 

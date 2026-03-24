@@ -176,12 +176,12 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 16,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     color: '#1f2937',
   },
   subtitle: {
     fontSize: 13,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
     color: '#6b7280',
   },
   progressContainer: {
@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
   },
   progressText: {
     fontSize: 12,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     color: '#84c059',
     textAlign: 'right',
   },
@@ -242,19 +242,19 @@ const styles = StyleSheet.create({
   },
   phaseName: {
     fontSize: 13,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     color: '#1f2937',
     textAlign: 'center',
   },
   phaseDays: {
     fontSize: 11,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
     color: '#6b7280',
     textAlign: 'center',
   },
   phaseDescription: {
     fontSize: 10,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
     color: '#9ca3af',
     textAlign: 'center',
     lineHeight: 13,
@@ -280,18 +280,18 @@ const styles = StyleSheet.create({
   },
   currentPhaseLabel: {
     fontSize: 10,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'PlusJakartaSans_600SemiBold',
     color: '#92400e',
     letterSpacing: 0.5,
   },
   currentPhaseName: {
     fontSize: 15,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'PlusJakartaSans_700Bold',
     color: '#1f2937',
   },
   currentPhaseDesc: {
     fontSize: 12,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'PlusJakartaSans_400Regular',
     color: '#6b7280',
     lineHeight: 16,
   },
