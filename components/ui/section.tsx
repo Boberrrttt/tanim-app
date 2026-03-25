@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ViewStyle } from 'react-native';
+import { View, Text, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { Card } from './card';
 import { colors, spacing, fontFamily, fontSize } from '@/constants/design-tokens';
 
@@ -9,7 +9,7 @@ interface SectionProps {
   description?: string;
   badge?: string;
   children: React.ReactNode;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 }
 
 export function Section({ title, icon: Icon, description, badge, children, style }: SectionProps) {
@@ -45,12 +45,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
-    borderRadius: 8,
+    borderRadius: 9999,
   },
   badgeText: {
-    fontSize: fontSize.sm,
-    fontFamily: fontFamily.bold,
-    color: colors.white,
+    fontSize: fontSize.xs,
+    fontFamily: fontFamily.semibold,
+    color: colors.primaryForeground,
   },
   header: {
     flexDirection: 'row',
@@ -61,9 +61,9 @@ const styles = StyleSheet.create({
     marginRight: 2,
   },
   title: {
-    fontSize: fontSize['2xl'],
+    fontSize: fontSize.xl,
     fontFamily: fontFamily.bold,
-    color: colors.black,
+    color: colors.foreground,
     flex: 1,
   },
   description: {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { Sprout, Droplet, Sun, Flower, Package } from 'lucide-react-native';
+import { colors, fontFamily, fontSize, radius, spacing, shadow } from '@/constants/design-tokens';
 
 interface TimelinePhase {
   id: number;
@@ -70,13 +71,13 @@ const FarmingTimeline: React.FC<FarmingTimelineProps> = ({
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed':
-        return '#84c059';
+        return colors.primary;
       case 'current':
-        return '#f59e0b';
+        return colors.warning;
       case 'upcoming':
-        return '#d1d5db';
+        return colors.muted;
       default:
-        return '#d1d5db';
+        return colors.muted;
     }
   };
 
@@ -93,7 +94,6 @@ const FarmingTimeline: React.FC<FarmingTimelineProps> = ({
         </Text>
       </View>
 
-      {/* Progress Bar */}
       <View style={styles.progressContainer}>
         <View style={styles.progressBar}>
           <View
@@ -106,7 +106,6 @@ const FarmingTimeline: React.FC<FarmingTimelineProps> = ({
         <Text style={styles.progressText}>{Math.round(getProgressPercentage())}% Complete</Text>
       </View>
 
-      {/* Timeline Phases */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.phasesScroll}>
         <View style={styles.phasesContainer}>
           {phases.map((phase, index) => {
@@ -124,7 +123,7 @@ const FarmingTimeline: React.FC<FarmingTimelineProps> = ({
                   >
                     <PhaseIcon
                       size={24}
-                      color={phase.status === 'upcoming' ? '#6b7280' : '#ffffff'}
+                      color={phase.status === 'upcoming' ? colors.mutedForeground : colors.primaryForeground}
                     />
                   </View>
                   <Text style={styles.phaseName}>{phase.name}</Text>
@@ -132,14 +131,13 @@ const FarmingTimeline: React.FC<FarmingTimelineProps> = ({
                   <Text style={styles.phaseDescription}>{phase.description}</Text>
                 </View>
 
-                {/* Connector Line */}
                 {index < phases.length - 1 && (
                   <View
                     style={[
                       styles.connector,
                       {
                         backgroundColor:
-                          phase.status === 'completed' ? '#84c059' : '#e5e7eb',
+                          phase.status === 'completed' ? colors.primary : colors.muted,
                       },
                     ]}
                   />
@@ -150,7 +148,6 @@ const FarmingTimeline: React.FC<FarmingTimelineProps> = ({
         </View>
       </ScrollView>
 
-      {/* Current Phase Highlight */}
       <View style={styles.currentPhaseCard}>
         <Text style={styles.currentPhaseLabel}>CURRENT PHASE</Text>
         <Text style={styles.currentPhaseName}>
@@ -166,51 +163,52 @@ const FarmingTimeline: React.FC<FarmingTimelineProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-    borderRadius: 12,
-    padding: 14,
-    gap: 12,
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: spacing.md + 2,
+    gap: spacing.md,
+    ...(shadow.sm ?? {}),
   },
   header: {
     gap: 2,
   },
   title: {
-    fontSize: 16,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1f2937',
+    fontSize: fontSize.base,
+    fontFamily: fontFamily.bold,
+    color: colors.foreground,
   },
   subtitle: {
-    fontSize: 13,
-    fontFamily: 'PlusJakartaSans_400Regular',
-    color: '#6b7280',
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.regular,
+    color: colors.mutedForeground,
   },
   progressContainer: {
     gap: 6,
   },
   progressBar: {
     height: 10,
-    backgroundColor: '#e5e7eb',
+    backgroundColor: colors.muted,
     borderRadius: 5,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#84c059',
+    backgroundColor: colors.primary,
     borderRadius: 6,
   },
   progressText: {
-    fontSize: 12,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#84c059',
+    fontSize: fontSize.xs,
+    fontFamily: fontFamily.semibold,
+    color: colors.primary,
     textAlign: 'right',
   },
   phasesScroll: {
-    marginHorizontal: -16,
-    marginTop: 8,
+    marginHorizontal: -spacing.lg,
+    marginTop: spacing.sm,
   },
   phasesContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.lg,
     alignItems: 'center',
   },
   phaseWrapper: {
@@ -219,16 +217,12 @@ const styles = StyleSheet.create({
   },
   phaseCard: {
     width: 130,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
     padding: 10,
     alignItems: 'center',
     gap: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    ...(shadow.sm ?? {}),
   },
   iconCircle: {
     width: 44,
@@ -238,24 +232,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 2,
     borderWidth: 2,
-    borderColor: '#e5e7eb',
+    borderColor: colors.border,
   },
   phaseName: {
-    fontSize: 13,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#1f2937',
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.semibold,
+    color: colors.foreground,
     textAlign: 'center',
   },
   phaseDays: {
-    fontSize: 11,
-    fontFamily: 'PlusJakartaSans_400Regular',
-    color: '#6b7280',
+    fontSize: fontSize.xs,
+    fontFamily: fontFamily.regular,
+    color: colors.mutedForeground,
     textAlign: 'center',
   },
   phaseDescription: {
     fontSize: 10,
-    fontFamily: 'PlusJakartaSans_400Regular',
-    color: '#9ca3af',
+    fontFamily: fontFamily.regular,
+    color: colors.mutedForeground,
     textAlign: 'center',
     lineHeight: 13,
   },
@@ -265,34 +259,30 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
   currentPhaseCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 8,
+    backgroundColor: colors.warningLight,
+    borderRadius: radius.md,
     padding: 10,
     borderLeftWidth: 3,
-    borderLeftColor: '#f59e0b',
+    borderLeftColor: colors.warning,
     gap: 2,
-    marginTop: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    marginTop: spacing.lg,
+    ...(shadow.sm ?? {}),
   },
   currentPhaseLabel: {
     fontSize: 10,
-    fontFamily: 'PlusJakartaSans_600SemiBold',
-    color: '#92400e',
+    fontFamily: fontFamily.semibold,
+    color: colors.warning,
     letterSpacing: 0.5,
   },
   currentPhaseName: {
-    fontSize: 15,
-    fontFamily: 'PlusJakartaSans_700Bold',
-    color: '#1f2937',
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.bold,
+    color: colors.foreground,
   },
   currentPhaseDesc: {
-    fontSize: 12,
-    fontFamily: 'PlusJakartaSans_400Regular',
-    color: '#6b7280',
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.regular,
+    color: colors.mutedForeground,
     lineHeight: 16,
   },
 });

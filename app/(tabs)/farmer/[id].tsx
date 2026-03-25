@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   ArrowLeft,
   ChartLine,
+  MapPin,
   Umbrella,
   Droplet,
   Wind,
@@ -23,7 +24,7 @@ import { GetWeatherToday } from '@/services/weather.service';
 import { getSoilHealth } from '@/services/soil-health.service';
 import { getFarms } from '@/services/farm.service';
 import { predict } from '@/services/ml.service';
-import { fontFamily, radius, colors } from '@/constants/design-tokens';
+import { fontFamily, fontSize, radius, colors, spacing, shadow } from '@/constants/design-tokens';
 import { IFarm } from '@/types/farm.types';
 import { ISoilHealth } from '@/types/soil-health.types';
 
@@ -140,12 +141,21 @@ const getWeatherRecommendation = (
   }
 };
 
+function healthStatusBadge(status: string) {
+  if (status === 'Good' || status === 'High')
+    return { bg: colors.successLight, fg: colors.success };
+  if (status === 'Low')
+    return { bg: colors.infoLight, fg: colors.info };
+  if (status === 'Moderate' || status === 'Medium')
+    return { bg: colors.warningLight, fg: colors.warning };
+  return { bg: colors.dangerLight, fg: colors.destructive };
+}
+
 const HealthCard = ({
   element,
   symbol,
   percent,
   status,
-  statusColor,
   actualValue,
   unit,
   maxValue,
@@ -154,31 +164,33 @@ const HealthCard = ({
   symbol: string;
   percent: number;
   status: string;
-  statusColor: string;
   actualValue: string;
   unit: string;
   maxValue: string;
-}) => (
-  <View style={styles.healthCard}>
-    <View style={styles.healthCardHeader}>
-      <View style={styles.healthCardTitle}>
-        <Text style={styles.healthSymbol}>{symbol}</Text>
-        <Text style={styles.healthElement}>{element}</Text>
+}) => {
+  const badge = healthStatusBadge(status);
+  return (
+    <View style={styles.healthCard}>
+      <View style={styles.healthCardHeader}>
+        <View style={styles.healthCardTitle}>
+          <Text style={styles.healthSymbol}>{symbol}</Text>
+          <Text style={styles.healthElement}>{element}</Text>
+        </View>
+        <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
+          <Text style={[styles.statusText, { color: badge.fg }]}>{status}</Text>
+        </View>
       </View>
-      <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-        <Text style={styles.statusText}>{status}</Text>
+      <View style={styles.progressBar}>
+        <View style={[styles.progressFill, { width: `${percent}%` }]} />
+      </View>
+      <View style={styles.healthCardFooter}>
+        <Text style={styles.healthValue}>0</Text>
+        <Text style={styles.healthValueMain}>{actualValue}{unit}</Text>
+        <Text style={styles.healthValue}>{maxValue}{unit}</Text>
       </View>
     </View>
-    <View style={styles.progressBar}>
-      <View style={[styles.progressFill, { width: `${percent}%` }]} />
-    </View>
-    <View style={styles.healthCardFooter}>
-      <Text style={styles.healthValue}>0</Text>
-      <Text style={styles.healthValueMain}>{actualValue}{unit}</Text>
-      <Text style={styles.healthValue}>{maxValue}{unit}</Text>
-    </View>
-  </View>
-);
+  );
+};
 
 export default function FarmDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -264,17 +276,18 @@ export default function FarmDetailsScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.headerContainer}>
+        <View style={styles.topBar}>
           <TouchableOpacity
-            style={styles.backButton}
+            style={styles.backIconButton}
             onPress={() => router.back()}
             activeOpacity={0.7}
+            accessibilityLabel="Back"
           >
-            <ArrowLeft size={22} color="#ffffff" strokeWidth={2.5} />
+            <ArrowLeft size={22} color={colors.primary} strokeWidth={2.5} />
           </TouchableOpacity>
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#84c059" />
+          <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Loading farm details...</Text>
         </View>
       </SafeAreaView>
@@ -286,24 +299,31 @@ export default function FarmDetailsScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.headerContainer}>
+      <View style={styles.topBar}>
         <TouchableOpacity
-          style={styles.backButton}
+          style={styles.backIconButton}
           onPress={() => router.back()}
           activeOpacity={0.7}
+          accessibilityLabel="Back"
         >
-          <ArrowLeft size={22} color="#ffffff" strokeWidth={2.5} />
+          <ArrowLeft size={22} color={colors.primary} strokeWidth={2.5} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{farm?.farm_name ?? 'Farm Details'}</Text>
-        <Text style={styles.headerSubtitle}>{farm?.farm_measurement} hectares</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.farmCallout}>
+          <MapPin size={24} color={colors.primary} strokeWidth={2} />
+          <View style={styles.farmCalloutText}>
+            <Text style={styles.farmCalloutTitle}>{farm?.farm_name ?? 'Farm Details'}</Text>
+            <Text style={styles.farmCalloutMeta}>{farm?.farm_measurement} hectares</Text>
+          </View>
+        </View>
+
         {/* Soil Health */}
         <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <ChartLine size={28} color="#84c059" />
-              <Text style={styles.sectionTitle}>Soil Health</Text>
+              <ChartLine size={26} color={colors.primary} strokeWidth={2} />
+              <Text style={styles.sectionTitle}>🧪 Soil Health</Text>
           </View>
 
           {soilHealth ? (
@@ -314,7 +334,6 @@ export default function FarmDetailsScreen() {
                   symbol="𝐍"
                   percent={soilHealth.nitrogen}
                   status="Good"
-                  statusColor="#d1fae5"
                   actualValue={soilHealth.nitrogen?.toString() ?? '0'}
                   unit="mg/kg"
                   maxValue="100"
@@ -324,7 +343,6 @@ export default function FarmDetailsScreen() {
                   symbol="𝐏"
                   percent={soilHealth.phosphorus}
                   status="Good"
-                  statusColor="#d1fae5"
                   actualValue={soilHealth.phosphorus?.toString() ?? '0'}
                   unit="mg/kg"
                   maxValue="100"
@@ -334,7 +352,6 @@ export default function FarmDetailsScreen() {
                   symbol="𝐊"
                   percent={soilHealth.potassium}
                   status="Good"
-                  statusColor="#d1fae5"
                   actualValue={soilHealth.potassium?.toString() ?? '0'}
                   unit="mg/kg"
                   maxValue="100"
@@ -344,7 +361,6 @@ export default function FarmDetailsScreen() {
                   symbol="🧂"
                   percent={soilHealth.salinity * 15}
                   status="Low"
-                  statusColor="#dbeafe"
                   actualValue={soilHealth.salinity?.toString() ?? '0'}
                   unit=" dS/m"
                   maxValue="6.5"
@@ -354,7 +370,6 @@ export default function FarmDetailsScreen() {
                   symbol="🧪"
                   percent={soilHealth.ph * 10}
                   status="Good"
-                  statusColor="#d1fae5"
                   actualValue={soilHealth.ph?.toString() ?? '0'}
                   unit=" pH"
                   maxValue="10"
@@ -364,7 +379,6 @@ export default function FarmDetailsScreen() {
                   symbol="💧"
                   percent={soilHealth.moisture}
                   status="Good"
-                  statusColor="#d1fae5"
                   actualValue={soilHealth.moisture?.toString() ?? '0'}
                   unit="%"
                   maxValue="100"
@@ -388,8 +402,8 @@ export default function FarmDetailsScreen() {
         {/* Weather Today */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Umbrella size={28} color="#84c059" />
-            <Text style={styles.sectionTitle}>Weather Today</Text>
+            <Umbrella size={26} color={colors.primary} strokeWidth={2} />
+            <Text style={styles.sectionTitle}>🌤️ Weather Today</Text>
           </View>
           <Text style={styles.weatherDate}>{todayIs}</Text>
 
@@ -406,18 +420,18 @@ export default function FarmDetailsScreen() {
                 </View>
                 <View style={styles.weatherDetails}>
                   <View style={styles.weatherDetailItem}>
-                    <Droplet size={16} color="#6b7280" />
+                    <Droplet size={16} color={colors.mutedForeground} />
                     <Text style={styles.weatherDetailText}>{weather.humidity}% Humidity</Text>
                   </View>
                   <View style={styles.weatherDetailItem}>
-                    <Wind size={16} color="#6b7280" />
+                    <Wind size={16} color={colors.mutedForeground} />
                     <Text style={styles.weatherDetailText}>{weather.wind_speed} km/h Wind</Text>
                   </View>
                 </View>
               </View>
               <View style={styles.weatherRecommendation}>
                 <View style={styles.recommendationHeader}>
-                  <BrainCircuit size={22} color="#84c059" />
+                  <BrainCircuit size={22} color={colors.primary} strokeWidth={2} />
                   <Text style={styles.recommendationTitle}>What to do today</Text>
                 </View>
                 <Text style={styles.recommendationText}>
@@ -443,8 +457,8 @@ export default function FarmDetailsScreen() {
         {/* Best Crop Suggestion - Top 3 */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <ChartLine size={28} color="#84c059" />
-            <Text style={styles.sectionTitle}>Top Crop Suggestions</Text>
+            <ChartLine size={26} color={colors.primary} strokeWidth={2} />
+            <Text style={styles.sectionTitle}>🌾 Top Crop Suggestions</Text>
           </View>
           <Text style={styles.sectionDescription}>
             Tap a crop to see fertilizer recommendations.
@@ -489,7 +503,7 @@ export default function FarmDetailsScreen() {
         {/* Fertilizer Advice - Generated per selected crop */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Clover size={28} color="#84c059" />
+            <Clover size={26} color={colors.primary} strokeWidth={2} />
             <Text style={styles.sectionTitle}>
               Fertilizer Advice {selectedCrop ? `for ${selectedCrop}` : ''}
             </Text>
@@ -528,98 +542,98 @@ export default function FarmDetailsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f3eee6',
+    backgroundColor: colors.background,
   },
-  headerContainer: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 20,
-    borderBottomLeftRadius: radius.xl,
-    borderBottomRightRadius: radius.xl,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 6,
+  topBar: {
+    borderBottomWidth: 2,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.card,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    ...(shadow.sm ?? {}),
   },
-  backButton: {
+  backIconButton: {
     width: 44,
     height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
   },
-  headerTitle: {
-    fontSize: 22,
+  farmCallout: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.primaryAlpha10,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+  },
+  farmCalloutText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  farmCalloutTitle: {
+    fontSize: fontSize.lg,
     fontFamily: fontFamily.bold,
-    color: colors.white,
+    color: colors.foreground,
   },
-  headerSubtitle: {
-    fontSize: 14,
+  farmCalloutMeta: {
+    fontSize: fontSize.sm,
     fontFamily: fontFamily.medium,
-    color: 'rgba(255,255,255,0.9)',
-    marginTop: 4,
+    color: colors.mutedForeground,
   },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 32,
-    gap: 24,
+    padding: spacing.lg,
+    paddingBottom: spacing['3xl'],
+    gap: spacing.lg,
+    maxWidth: 672,
+    width: '100%',
+    alignSelf: 'center',
   },
   loadingContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 40,
-    gap: 12,
+    padding: spacing['4xl'],
+    gap: spacing.md,
   },
   loadingText: {
-    fontSize: 16,
+    fontSize: fontSize.base,
     fontFamily: fontFamily.medium,
-    color: '#6b7280',
+    color: colors.mutedForeground,
   },
   section: {
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 20,
+    backgroundColor: colors.card,
+    borderRadius: radius.xl,
+    padding: spacing.xl,
     gap: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    ...(shadow.sm ?? {}),
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: spacing.sm,
   },
   sectionTitle: {
-    fontSize: 19,
+    fontSize: fontSize.xl,
     fontFamily: fontFamily.bold,
-    color: '#000',
+    color: colors.foreground,
+    flex: 1,
   },
   sectionDescription: {
-    fontSize: 15,
+    fontSize: fontSize.md,
     fontFamily: fontFamily.regular,
-    color: '#4a5568',
+    color: colors.mutedForeground,
     lineHeight: 22,
   },
   healthGrid: {
-    gap: 12,
+    gap: spacing.md,
   },
   healthCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
+    backgroundColor: colors.background,
+    borderRadius: radius.lg,
     padding: 14,
     gap: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
   },
   healthCardHeader: {
     flexDirection: 'row',
@@ -635,29 +649,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   healthElement: {
-    fontSize: 15,
+    fontSize: fontSize.md,
     fontFamily: fontFamily.semibold,
-    color: '#1f2937',
+    color: colors.foreground,
   },
   statusBadge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: spacing.sm,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: radius.full,
   },
   statusText: {
-    fontSize: 13,
-    fontFamily: fontFamily.medium,
-    color: '#065f46',
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.semibold,
   },
   progressBar: {
     height: 10,
-    backgroundColor: '#e5e7eb',
+    backgroundColor: colors.muted,
     borderRadius: 5,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#84c059',
+    backgroundColor: colors.primary,
     borderRadius: 5,
   },
   healthCardFooter: {
@@ -665,70 +678,58 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   healthValue: {
-    fontSize: 13,
+    fontSize: fontSize.sm,
     fontFamily: fontFamily.regular,
-    color: '#6b7280',
+    color: colors.mutedForeground,
   },
   healthValueMain: {
-    fontSize: 14,
+    fontSize: fontSize.sm + 1,
     fontFamily: fontFamily.semibold,
-    color: '#84c059',
+    color: colors.primary,
   },
   summaryBox: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: '#84c059',
-    gap: 8,
-    marginTop: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    backgroundColor: colors.primaryAlpha10,
+    borderRadius: radius.xl,
+    padding: spacing.xl,
+    gap: spacing.sm,
+    marginTop: spacing.lg,
   },
   summaryIcon: {
     fontSize: 20,
   },
   summaryTitle: {
-    fontSize: 17,
+    fontSize: fontSize.lg,
     fontFamily: fontFamily.semibold,
-    color: '#000',
+    color: colors.foreground,
   },
   summaryText: {
-    fontSize: 15,
+    fontSize: fontSize.md,
     fontFamily: fontFamily.regular,
-    color: '#4a5568',
+    color: colors.mutedForeground,
     lineHeight: 22,
   },
   emptyCard: {
-    padding: 24,
-    backgroundColor: '#f9fafb',
-    borderRadius: 12,
+    padding: spacing['2xl'],
+    backgroundColor: colors.background,
+    borderRadius: radius.lg,
   },
   emptyText: {
-    fontSize: 15,
+    fontSize: fontSize.md,
     fontFamily: fontFamily.regular,
-    color: '#6b7280',
+    color: colors.mutedForeground,
     textAlign: 'center',
   },
   weatherDate: {
-    fontSize: 13,
+    fontSize: fontSize.sm,
     fontFamily: fontFamily.medium,
-    color: '#4a5568',
+    color: colors.mutedForeground,
   },
   weatherCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 24,
+    backgroundColor: colors.background,
+    borderRadius: radius.lg,
+    padding: spacing['2xl'],
     alignItems: 'center',
-    gap: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    gap: spacing.md,
   },
   weatherEmoji: {
     fontSize: 52,
@@ -746,14 +747,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   tempValue: {
-    fontSize: 24,
-    fontFamily: fontFamily.semibold,
-    color: '#000',
+    fontSize: fontSize['3xl'],
+    fontFamily: fontFamily.bold,
+    color: colors.foreground,
   },
   weatherCondition: {
-    fontSize: 16,
+    fontSize: fontSize.base,
     fontFamily: fontFamily.medium,
-    color: '#6b7280',
+    color: colors.mutedForeground,
   },
   weatherDetails: {
     flexDirection: 'row',
@@ -767,22 +768,17 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   weatherDetailText: {
-    fontSize: 14,
+    fontSize: fontSize.sm + 1,
     fontFamily: fontFamily.regular,
-    color: '#6b7280',
+    color: colors.mutedForeground,
   },
   weatherRecommendation: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 14,
+    backgroundColor: colors.background,
+    borderRadius: radius.lg,
+    padding: spacing.md + 2,
     borderLeftWidth: 3,
-    borderLeftColor: '#84c059',
-    gap: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    borderLeftColor: colors.primary,
+    gap: spacing.sm,
   },
   recommendationHeader: {
     flexDirection: 'row',
@@ -790,37 +786,37 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   recommendationTitle: {
-    fontSize: 17,
+    fontSize: fontSize.lg,
     fontFamily: fontFamily.semibold,
-    color: '#166534',
+    color: colors.greenTextBold,
   },
   recommendationText: {
-    fontSize: 15,
+    fontSize: fontSize.md,
     fontFamily: fontFamily.regular,
-    color: '#15803d',
+    color: colors.greenText,
     lineHeight: 22,
   },
   suggestionHero: {
-    borderRadius: 16,
+    borderRadius: radius.xl,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#e7e5e4',
-    backgroundColor: '#fafaf9',
+    borderColor: colors.border,
+    backgroundColor: colors.background,
   },
   suggestionHeroActive: {
-    borderColor: '#bbf7d0',
-    backgroundColor: '#f7fee7',
+    borderColor: colors.greenBorder,
+    backgroundColor: colors.successLight,
   },
   suggestionHeroEmpty: {
-    borderColor: '#e5e7eb',
-    backgroundColor: '#f9fafb',
+    borderColor: colors.border,
+    backgroundColor: colors.background,
   },
   suggestionHeroTopBar: {
     height: 5,
-    backgroundColor: '#84c059',
+    backgroundColor: colors.primary,
   },
   suggestionHeroTopBarMuted: {
-    backgroundColor: '#d1d5db',
+    backgroundColor: colors.muted,
   },
   suggestionHeroInner: {
     paddingVertical: 22,
@@ -830,31 +826,31 @@ const styles = StyleSheet.create({
   suggestionKicker: {
     fontSize: 10,
     fontFamily: fontFamily.semibold,
-    color: '#4d7c0f',
+    color: colors.greenAccent,
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
   suggestionKickerMuted: {
-    color: '#9ca3af',
+    color: colors.mutedForeground,
   },
   suggestionTitle: {
-    fontSize: 24,
+    fontSize: fontSize['2xl'],
     fontFamily: fontFamily.bold,
-    color: '#14532d',
+    color: colors.greenDark,
     lineHeight: 30,
     letterSpacing: -0.4,
   },
   suggestionTitleEmpty: {
-    fontSize: 19,
+    fontSize: fontSize.lg,
     fontFamily: fontFamily.semibold,
-    color: '#9ca3af',
+    color: colors.mutedForeground,
     letterSpacing: 0,
     lineHeight: 28,
   },
   suggestionFootnote: {
-    fontSize: 14,
+    fontSize: fontSize.sm + 1,
     fontFamily: fontFamily.regular,
-    color: '#4b5563',
+    color: colors.textSecondary,
     lineHeight: 22,
     marginTop: 6,
   },
@@ -862,25 +858,25 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     marginTop: 10,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(132, 192, 89, 0.35)',
+    borderTopColor: colors.greenBorder,
   },
   suggestionFootnoteMuted: {
-    color: '#9ca3af',
+    color: colors.mutedForeground,
   },
   cropSuggestionCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
-    backgroundColor: '#f9fafb',
-    borderRadius: 12,
-    marginBottom: 12,
+    padding: spacing.lg,
+    backgroundColor: colors.background,
+    borderRadius: radius.lg,
+    marginBottom: spacing.md,
     borderWidth: 2,
     borderColor: 'transparent',
   },
   cropSuggestionCardSelected: {
-    borderColor: '#84c059',
-    backgroundColor: '#f7fee7',
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryAlpha10,
   },
   cropSuggestionLeft: {
     flexDirection: 'row',
@@ -891,46 +887,41 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#e5e7eb',
+    backgroundColor: colors.muted,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cropRankBadgeSelected: {
-    backgroundColor: '#84c059',
+    backgroundColor: colors.primary,
   },
   cropRankText: {
-    fontSize: 14,
+    fontSize: fontSize.sm + 1,
     fontFamily: fontFamily.bold,
-    color: '#374151',
+    color: colors.foreground,
   },
   cropRankTextSelected: {
-    color: '#ffffff',
+    color: colors.primaryForeground,
   },
   cropSuggestionName: {
-    fontSize: 17,
+    fontSize: fontSize.lg,
     fontFamily: fontFamily.semibold,
-    color: '#1f2937',
+    color: colors.foreground,
   },
   cropSuggestionNameSelected: {
-    color: '#14532d',
+    color: colors.greenDark,
   },
   cropProbability: {
-    fontSize: 14,
+    fontSize: fontSize.sm + 1,
     fontFamily: fontFamily.medium,
-    color: '#6b7280',
+    color: colors.mutedForeground,
   },
   fertilizerCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
+    backgroundColor: colors.background,
+    borderRadius: radius.lg,
     padding: 18,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    marginBottom: spacing.md,
     borderLeftWidth: 4,
-    borderLeftColor: '#84c059',
+    borderLeftColor: colors.primary,
   },
   fertilizerHeader: {
     flexDirection: 'row',
@@ -939,9 +930,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   fertilizerName: {
-    fontSize: 17,
+    fontSize: fontSize.lg,
     fontFamily: fontFamily.semibold,
-    color: '#000',
+    color: colors.foreground,
   },
   fertilizerDetails: {
     flexDirection: 'row',
@@ -950,18 +941,18 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   fertilizerDetail: {
-    fontSize: 15,
+    fontSize: fontSize.md,
     fontFamily: fontFamily.regular,
-    color: '#4a5568',
+    color: colors.mutedForeground,
   },
   fertilizerLabel: {
     fontFamily: fontFamily.semibold,
-    color: '#374151',
+    color: colors.foreground,
   },
   fertilizerNote: {
-    fontSize: 14,
+    fontSize: fontSize.sm + 1,
     fontFamily: fontFamily.regular,
-    color: '#6b7280',
+    color: colors.mutedForeground,
     lineHeight: 20,
   },
 });

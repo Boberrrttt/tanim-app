@@ -6,12 +6,13 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Sprout, MapPin, LogOut } from 'lucide-react-native';
+import { Sprout, MapPin, LogOut, ChevronRight } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { getFarms } from '../../../services/farm.service';
-import { fontFamily, spacing, radius, colors } from '@/constants/design-tokens';
+import { colors, fontFamily, fontSize, radius, shadow, spacing } from '@/constants/design-tokens';
 import { IFarm } from '../../../types/farm.types';
 
 const FarmerScreen = () => {
@@ -35,219 +36,226 @@ const FarmerScreen = () => {
 
     getDetails();
   }, []);
+
   const handleLogout = () => {
     router.push('/login');
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Fixed Header */}
-      <View style={styles.headerContainer}>
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <View style={styles.iconContainer}>
-              <Sprout size={36} color="#ffffff" strokeWidth={2} />
-            </View>
+    <SafeAreaView style={styles.screen} edges={['top']}>
+      <View style={styles.pageHeader}>
+        <View style={styles.pageHeaderInner}>
+          <View style={styles.headerBrand}>
+            <Sprout size={28} color={colors.primary} strokeWidth={2.2} />
             <View style={styles.headerText}>
-              <Text style={styles.title}>Tanim</Text>
-              <Text style={styles.subtitle} numberOfLines={1}>Hello, Farmer!</Text>
+              <Text style={styles.headerTitle} numberOfLines={1}>
+                Tanim
+              </Text>
+              <Text style={styles.headerSubtitle} numberOfLines={1}>
+                Hello, Farmer!
+              </Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.7} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <LogOut size={18} color="#ffffff" strokeWidth={2.5} />
-            <Text style={styles.logoutText}>Logout</Text>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={handleLogout}
+            activeOpacity={0.7}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityLabel="Logout"
+            accessibilityRole="button"
+          >
+            <LogOut size={22} color={colors.foreground} strokeWidth={2} />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Scrollable Content */}
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <MapPin size={28} color="#84c059" />
-            <Text style={styles.sectionTitle}>My Farms</Text>
-          </View>
-          <Text style={styles.sectionDescription}>Tap your farm to see soil health and crop suggestions.</Text>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.screenTitle}>🌾 My Farms</Text>
+        <Text style={styles.screenDescription}>
+          Tap your farm to see soil health and crop suggestions.
+        </Text>
 
-          {loading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#84c059" />
-              <Text style={styles.loadingText}>Loading...</Text>
-            </View>
-          ) : farms.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No farms yet. Add a farm to start.</Text>
-            </View>
-          ) : (
-            farms.map((farm: IFarm) => (
-              <TouchableOpacity
-                key={farm.farm_id}
-                style={styles.farmCard}
-                onPress={() => router.push(`/farmer/${farm.farm_id}` as import('expo-router').Href)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.farmInfo}>
-                  <Text style={styles.farmName}>{farm.farm_name}</Text>
-                  <Text style={styles.farmDetails}>{farm.farm_measurement} hectares</Text>
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.loadingText}>Loading...</Text>
+          </View>
+        ) : farms.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyText}>No farms yet. Add a farm to start.</Text>
+          </View>
+        ) : (
+          farms.map((farm: IFarm) => (
+            <TouchableOpacity
+              key={farm.farm_id}
+              style={styles.farmRow}
+              onPress={() =>
+                router.push(`/farmer/${farm.farm_id}` as import('expo-router').Href)
+              }
+              activeOpacity={0.92}
+            >
+              <View style={styles.farmRowLeft}>
+                <View style={styles.iconWell}>
+                  <MapPin size={28} color={colors.primary} strokeWidth={2} />
                 </View>
-              </TouchableOpacity>
-            ))
-          )}
-        </View>
+                <View style={styles.farmRowText}>
+                  <Text style={styles.farmName}>{farm.farm_name}</Text>
+                  <Text style={styles.farmHint}>
+                    {farm.farm_measurement} hectares · Tap to view details
+                  </Text>
+                </View>
+              </View>
+              <ChevronRight size={24} color={colors.mutedForeground} strokeWidth={2} />
+            </TouchableOpacity>
+          ))
+        )}
       </ScrollView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
-    backgroundColor: '#f3eee6',
+    backgroundColor: colors.background,
   },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 32,
-    gap: 24,
+  pageHeader: {
+    borderBottomWidth: 2,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.card,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 3,
+      },
+      android: { elevation: 2 },
+      default: {},
+    }),
   },
-  headerContainer: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.xl,
-    borderBottomLeftRadius: radius.xl,
-    borderBottomRightRadius: radius.xl,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  header: {
+  pageHeaderInner: {
+    maxWidth: 672,
+    width: '100%',
+    alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md + 2,
   },
-  headerLeft: {
+  headerBrand: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.sm,
     flex: 1,
+    minWidth: 0,
   },
   headerText: {
+    flex: 1,
+    minWidth: 0,
     gap: 2,
   },
-  iconContainer: {
-    backgroundColor: colors.overlayLight,
-    borderRadius: radius.full,
-    padding: spacing.md,
-  },
-  title: {
-    fontSize: 22,
+  headerTitle: {
+    fontSize: fontSize.xl,
     fontFamily: fontFamily.bold,
-    color: colors.white,
-    letterSpacing: -0.5,
+    color: colors.foreground,
   },
-  subtitle: {
-    fontSize: 13,
+  headerSubtitle: {
+    fontSize: fontSize.sm,
     fontFamily: fontFamily.medium,
-    color: 'rgba(255, 255, 255, 0.9)',
+    color: colors.mutedForeground,
   },
-  logoutButton: {
-    flexDirection: 'row',
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.overlayMedium,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    minHeight: 44,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
-  logoutText: {
-    fontSize: 14,
-    fontFamily: fontFamily.semibold,
-    color: colors.white,
+  scrollContent: {
+    padding: spacing.lg,
+    paddingBottom: spacing['3xl'],
+    maxWidth: 672,
+    width: '100%',
+    alignSelf: 'center',
+    gap: spacing.lg,
   },
-  section: {
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 20,
-    gap: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+  screenTitle: {
+    fontSize: fontSize['2xl'],
+    fontFamily: fontFamily.bold,
+    color: colors.foreground,
   },
-  sectionHeader: {
+  screenDescription: {
+    fontSize: fontSize.base,
+    fontFamily: fontFamily.regular,
+    color: colors.mutedForeground,
+    lineHeight: 22,
+    marginTop: -spacing.sm,
+  },
+  farmRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    borderRadius: radius.xl,
+    padding: spacing.xl,
+    ...(shadow.sm ?? {}),
   },
-  sectionTitle: {
-    fontSize: 19,
-    fontFamily: fontFamily.bold,
-    color: '#000',
-  },
-  sectionDescription: {
-    fontSize: 15,
-    fontFamily: fontFamily.regular,
-    color: '#4a5568',
-    lineHeight: 22,
-  },
-  farmCard: {
+  farmRowLeft: {
     flexDirection: 'row',
-    padding: 18,
-    minHeight: 72,
-    gap: 12,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  farmInfo: {
+    alignItems: 'center',
+    gap: spacing.lg,
     flex: 1,
+    minWidth: 0,
+  },
+  iconWell: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.lg,
+    backgroundColor: colors.primaryAlpha10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  farmRowText: {
+    flex: 1,
+    minWidth: 0,
     gap: 4,
   },
   farmName: {
-    fontSize: 16,
-    fontFamily: fontFamily.semibold,
-    color: '#000',
+    fontSize: fontSize.lg,
+    fontFamily: fontFamily.bold,
+    color: colors.foreground,
   },
-  farmDetails: {
-    fontSize: 14,
+  farmHint: {
+    fontSize: fontSize.sm,
     fontFamily: fontFamily.regular,
-    color: '#4a5568',
+    color: colors.mutedForeground,
   },
   loadingContainer: {
-    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 40,
-    gap: 12,
+    paddingVertical: spacing['4xl'],
+    gap: spacing.md,
   },
   loadingText: {
-    fontSize: 16,
+    fontSize: fontSize.base,
     fontFamily: fontFamily.medium,
-    color: '#6b7280',
+    color: colors.mutedForeground,
   },
-  emptyContainer: {
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 40,
-    gap: 12,
+  emptyCard: {
+    backgroundColor: colors.card,
+    borderRadius: radius.xl,
+    padding: spacing['2xl'],
+    ...(shadow.sm ?? {}),
   },
   emptyText: {
-    fontSize: 16,
+    fontSize: fontSize.base,
     fontFamily: fontFamily.medium,
-    color: '#6b7280',
+    color: colors.mutedForeground,
     textAlign: 'center',
   },
 });

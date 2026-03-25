@@ -1,6 +1,6 @@
 import { StyleSheet, Text, type TextProps } from 'react-native';
 
-import { fontFamily } from '@/constants/design-tokens';
+import { colors, fontFamily } from '@/constants/design-tokens';
 import { useThemeColor } from '@/hooks/use-theme-color';
 
 export type ThemedTextProps = TextProps & {
@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
   link: {
     lineHeight: 30,
     fontSize: 16,
-    fontFamily: fontFamily.medium,
-    color: '#0a7ea4',
+    fontFamily: fontFamily.semibold,
+    color: colors.primary,
   },
 });

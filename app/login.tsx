@@ -1,4 +1,4 @@
-import { colors } from "@/constants/design-tokens";
+import { colors, fontFamily, fontSize, radius, shadow, spacing } from "@/constants/design-tokens";
 import { loginFarmer } from "@/services/auth.service";
 import { setUserData } from "@/services/token.service";
 import { useRouter } from "expo-router";
@@ -71,85 +71,85 @@ const LoginScreen = () => {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.card}>
-            <View style={styles.header}>
-              <View style={styles.iconWrapper}>
-                <Sprout size={48} color="#ffffff" strokeWidth={2} />
+          <View style={styles.column}>
+            <View style={styles.heroBlock}>
+              <View style={styles.heroIcon}>
+                <Sprout size={32} color={colors.primaryForeground} strokeWidth={2} />
               </View>
-              <View style={styles.headerText}>
-                <Text style={styles.title}>Tanim</Text>
-                <Text style={styles.subtitle}>Multi-Cropping Assistant</Text>
-              </View>
+              <Text style={styles.appTitle}>Tanim</Text>
+              <Text style={styles.appTagline}>Smart Agricultural Management</Text>
             </View>
 
-            <View style={styles.formSection}>
-              <View style={styles.welcomeContainer}>
-                <Text style={styles.welcomeTitle}>Welcome to Tanim</Text>
-              </View>
-
-              <View style={styles.inputsContainer}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>User ID</Text>
-                  <View
-                    style={[
-                      styles.inputWrapper,
-                      idInput && styles.inputFocused,
-                    ]}
-                  >
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Enter your identification"
-                      placeholderTextColor={colors.textPlaceholder}
-                      value={idInput}
-                      onChangeText={setIdInput}
-                      autoCapitalize="none"
-                    />
-                  </View>
+            <View style={styles.card}>
+              <View style={styles.formSection}>
+                <View style={styles.welcomeContainer}>
+                  <Text style={styles.welcomeTitle}>Welcome to Tanim</Text>
                 </View>
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Password</Text>
-                  <View
-                    style={[
-                      styles.inputWrapper,
-                      pwInput && styles.inputFocused,
-                    ]}
-                  >
-                    <TextInput
-                      style={[styles.input, styles.passwordInput]}
-                      placeholder="Enter your password"
-                      placeholderTextColor={colors.textPlaceholder}
-                      value={pwInput}
-                      onChangeText={setPwInput}
-                      secureTextEntry={!showPw}
-                      autoCapitalize="none"
-                    />
-                    <TouchableOpacity
-                      onPress={() => setShowPw(!showPw)}
-                      hitSlop={12}
+                <View style={styles.inputsContainer}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>User ID</Text>
+                    <View
+                      style={[
+                        styles.inputWrapper,
+                        idInput ? styles.inputFocused : null,
+                      ]}
                     >
-                      {showPw ? (
-                        <Eye size={20} color={colors.textPlaceholder} />
-                      ) : (
-                        <EyeOff size={20} color={colors.textPlaceholder} />
-                      )}
-                    </TouchableOpacity>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="Enter your identification"
+                        placeholderTextColor={colors.mutedForeground}
+                        value={idInput}
+                        onChangeText={setIdInput}
+                        autoCapitalize="none"
+                      />
+                    </View>
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Password</Text>
+                    <View
+                      style={[
+                        styles.inputWrapper,
+                        pwInput ? styles.inputFocused : null,
+                      ]}
+                    >
+                      <TextInput
+                        style={[styles.input, styles.passwordInput]}
+                        placeholder="Enter your password"
+                        placeholderTextColor={colors.mutedForeground}
+                        value={pwInput}
+                        onChangeText={setPwInput}
+                        secureTextEntry={!showPw}
+                        autoCapitalize="none"
+                      />
+                      <TouchableOpacity
+                        onPress={() => setShowPw(!showPw)}
+                        hitSlop={12}
+                      >
+                        {showPw ? (
+                          <Eye size={20} color={colors.mutedForeground} />
+                        ) : (
+                          <EyeOff size={20} color={colors.mutedForeground} />
+                        )}
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
-              </View>
 
-              <TouchableOpacity
-                style={[styles.button, isLoading && styles.buttonDisabled]}
-                onPress={handleLogin}
-                disabled={isLoading}
-                activeOpacity={0.85}
-              >
-                {isLoading ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
-                ) : (
-                  <Text style={styles.buttonText}>Continue</Text>
-                )}
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.button, isLoading && styles.buttonDisabled]}
+                  onPress={handleLogin}
+                  disabled={isLoading}
+                  activeOpacity={0.92}
+                >
+                  {isLoading ? (
+                    <ActivityIndicator size="small" color={colors.primaryForeground} />
+                  ) : (
+                    <Text style={styles.buttonText}>Continue</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </ScrollView>
@@ -161,7 +161,7 @@ const LoginScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f3eee6",
+    backgroundColor: colors.background,
   },
   keyboardView: {
     flex: 1,
@@ -169,121 +169,110 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     justifyContent: "center",
-    padding: 24,
-    paddingBottom: 40,
+    padding: spacing.lg,
+    paddingBottom: spacing["4xl"],
   },
-  card: {
-    borderRadius: 20,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 8,
-    maxWidth: 440,
-    alignSelf: "center",
+  column: {
     width: "100%",
+    maxWidth: 400,
+    alignSelf: "center",
   },
-  header: {
-    backgroundColor: "#84c059",
-    padding: 28,
-    flexDirection: "row",
+  heroBlock: {
+    alignItems: "center",
+    marginBottom: spacing["2xl"],
+  },
+  heroIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.xl,
+    backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: spacing.lg,
   },
-  iconWrapper: {
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 9999,
-    padding: 12,
-    marginRight: 16,
-  },
-  headerText: {
-    alignItems: "flex-start",
-  },
-  title: {
-    fontSize: 28,
-    fontFamily: "PlusJakartaSans_700Bold",
-    color: "#ffffff",
+  appTitle: {
+    fontSize: fontSize["3xl"],
+    fontFamily: fontFamily.bold,
+    color: colors.foreground,
     letterSpacing: -0.5,
   },
-  subtitle: {
-    fontSize: 14,
-    fontFamily: "PlusJakartaSans_600SemiBold",
-    color: "#ffffff",
-    opacity: 0.95,
-    marginTop: 2,
+  appTagline: {
+    marginTop: spacing.xs,
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.medium,
+    color: colors.mutedForeground,
+  },
+  card: {
+    borderRadius: radius.lg,
+    backgroundColor: colors.card,
+    padding: spacing["2xl"],
+    ...(shadow.sm ?? {}),
   },
   formSection: {
-    backgroundColor: "#ffffff",
-    padding: 28,
+    gap: 0,
   },
   welcomeContainer: {
     alignItems: "center",
-    marginBottom: 28,
+    marginBottom: spacing.xl,
   },
   welcomeTitle: {
-    fontSize: 20,
-    fontFamily: "PlusJakartaSans_700Bold",
-    color: "#2e251f",
-    marginBottom: 6,
-  },
-  welcomeSubtitle: {
-    fontSize: 15,
-    fontFamily: "PlusJakartaSans_500Medium",
-    color: "#847062",
-    lineHeight: 22,
+    fontSize: fontSize.xl,
+    fontFamily: fontFamily.bold,
+    color: colors.foreground,
   },
   inputsContainer: {
-    gap: 20,
-    marginBottom: 28,
+    gap: spacing.lg,
+    marginBottom: spacing.xl,
   },
   inputGroup: {
     gap: 10,
   },
   label: {
-    fontSize: 14,
-    fontFamily: "PlusJakartaSans_600SemiBold",
-    color: "#2e251f",
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.medium,
+    color: colors.foreground,
   },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    borderWidth: 2,
-    borderColor: "#e8e3d9",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: "#fafaf9",
+    borderWidth: 1,
+    borderColor: colors.input,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 12,
+    backgroundColor: colors.background,
   },
   inputFocused: {
-    borderColor: "#84c059",
-    backgroundColor: "#ffffff",
+    borderColor: colors.ring,
+    backgroundColor: colors.card,
   },
   input: {
     flex: 1,
-    fontSize: 16,
-    fontFamily: "PlusJakartaSans_500Medium",
-    color: "#2e251f",
+    fontSize: fontSize.base,
+    fontFamily: fontFamily.medium,
+    color: colors.foreground,
   },
   passwordInput: {
     marginRight: 10,
   },
   button: {
-    backgroundColor: "#84c059",
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.md + 2,
+    paddingHorizontal: spacing["2xl"],
+    borderRadius: radius.md,
     alignItems: "center",
-    minHeight: 52,
+    minHeight: 44,
     justifyContent: "center",
+    width: "100%",
   },
   buttonDisabled: {
-    backgroundColor: "#a5c78a",
+    backgroundColor: colors.primary,
+    opacity: 0.55,
   },
   buttonText: {
-    fontSize: 17,
-    fontFamily: "PlusJakartaSans_700Bold",
-    color: "#ffffff",
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.semibold,
+    color: colors.primaryForeground,
   },
 });
 

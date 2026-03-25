@@ -1,11 +1,11 @@
 /**
- * Design tokens for consistent UI across the app.
- * Colors are preserved from the existing palette. Do not change.
+ * Design tokens aligned with CropWise (remix-of-cropwise-mobile-48 / DESIGN.md).
+ * HSL semantic palette converted to hex for React Native.
  */
 
 import { Platform } from 'react-native';
 
-/** Spacing scale (px) - use for padding, margins, gaps */
+/** Spacing scale (px) */
 export const spacing = {
   xs: 4,
   sm: 8,
@@ -19,25 +19,25 @@ export const spacing = {
   '6xl': 64,
 } as const;
 
-/** Border radius */
+/** Border radius — base 12px (--radius 0.75rem); md/sm follow shadcn calc */
 export const radius = {
-  sm: 6,
-  md: 8,
+  sm: 8,
+  md: 10,
   lg: 12,
   xl: 16,
-  '2xl': 20,
+  '2xl': 16,
+  '3xl': 24,
   full: 9999,
 } as const;
 
-/** Typography - font families (Plus Jakarta Sans) */
+/** Typography — Inter (DESIGN.md) */
 export const fontFamily = {
-  regular: 'PlusJakartaSans_400Regular',
-  medium: 'PlusJakartaSans_500Medium',
-  semibold: 'PlusJakartaSans_600SemiBold',
-  bold: 'PlusJakartaSans_700Bold',
+  regular: 'Inter_400Regular',
+  medium: 'Inter_500Medium',
+  semibold: 'Inter_600SemiBold',
+  bold: 'Inter_700Bold',
 } as const;
 
-/** Typography - font sizes */
 export const fontSize = {
   xs: 11,
   sm: 13,
@@ -51,7 +51,6 @@ export const fontSize = {
   '5xl': 48,
 } as const;
 
-/** Line heights */
 export const lineHeight = {
   tight: 1.2,
   normal: 1.4,
@@ -59,13 +58,12 @@ export const lineHeight = {
   loose: 1.75,
 } as const;
 
-/** Shadows - cross-platform */
 export const shadow = {
   sm: Platform.select({
     ios: {
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.04,
+      shadowOpacity: 0.06,
       shadowRadius: 2,
     },
     android: { elevation: 2 },
@@ -75,7 +73,7 @@ export const shadow = {
     ios: {
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.06,
+      shadowOpacity: 0.08,
       shadowRadius: 4,
     },
     android: { elevation: 4 },
@@ -88,14 +86,24 @@ export const shadow = {
       shadowOpacity: 0.08,
       shadowRadius: 8,
     },
-    android: { elevation: 8 },
+    android: { elevation: 6 },
+    default: {},
+  }),
+  nav: Platform.select({
+    ios: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -4 },
+      shadowOpacity: 0.08,
+      shadowRadius: 10,
+    },
+    android: { elevation: 12 },
     default: {},
   }),
   accent: Platform.select({
     ios: {
-      shadowColor: '#84c059',
+      shadowColor: '#7ebc5c',
       shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.15,
+      shadowOpacity: 0.12,
       shadowRadius: 6,
     },
     android: { elevation: 4 },
@@ -103,51 +111,76 @@ export const shadow = {
   }),
 } as const;
 
-/** App color palette - DO NOT CHANGE. Preserved from existing app. */
+/** CropWise semantic colors (from DESIGN.md :root) */
 export const colors = {
-  // Primary
-  primary: '#84c059',
-  primaryDisabled: '#a5c78a',
-
-  // Backgrounds
-  background: '#f3eee6',
+  background: '#f3eee7',
+  foreground: '#2f241d',
   card: '#ffffff',
+  cardForeground: '#2f241d',
 
-  // Text
-  textPrimary: '#2e251f',
-  textSecondary: '#4a5568',
-  textMuted: '#6b7280',
-  textTertiary: '#718096',
-  textPlaceholder: '#847062',
+  primary: '#7ebc5c',
+  primaryForeground: '#ffffff',
+  primaryDisabled: 'rgba(126, 188, 92, 0.45)',
 
-  // Status
-  statusSuccess: '#d1fae5',
-  statusSuccessText: '#065f46',
-  statusInfo: '#dbeafe',
-  statusWarning: '#f59e0b',
+  primaryAlpha10: 'rgba(126, 188, 92, 0.1)',
+  primaryAlpha15: 'rgba(126, 188, 92, 0.15)',
+  primaryAlpha20: 'rgba(126, 188, 92, 0.2)',
+  primaryAlpha30: 'rgba(126, 188, 92, 0.3)',
+  primaryAlpha40: 'rgba(126, 188, 92, 0.4)',
 
-  // Greens (soil/crop)
-  greenLight: '#eef7e4',
-  greenMuted: '#f7faf5',
-  greenBorder: '#bbf7d0',
-  greenAccent: '#4d7c0f',
+  secondary: '#f3eee7',
+  secondaryForeground: '#2f241d',
+
+  muted: '#e7e1da',
+  mutedForeground: '#816e65',
+
+  accent: '#7ebc5c',
+  accentForeground: '#ffffff',
+
+  destructive: '#ef4343',
+  destructiveForeground: '#ffffff',
+
+  border: '#dad2c8',
+  input: '#dad2c8',
+  ring: '#7ebc5c',
+
+  success: '#16a249',
+  successLight: '#e4fbed',
+  warning: '#f59f0a',
+  warningLight: '#fef3c8',
+  info: '#3c83f6',
+  infoLight: '#dcebfe',
+  dangerLight: '#fee1e1',
+
+  black: '#000000',
+  white: '#ffffff',
+
+  /** Legacy aliases used across screens — map to semantic tokens */
+  textPrimary: '#2f241d',
+  textSecondary: '#816e65',
+  textMuted: '#816e65',
+  textTertiary: '#816e65',
+  textPlaceholder: '#816e65',
+
+  statusSuccess: '#e4fbed',
+  statusSuccessText: '#16a249',
+  statusInfo: '#dcebfe',
+  statusWarning: '#f59f0a',
+
+  greenLight: '#e4fbed',
+  greenMuted: '#f3eee7',
+  greenBorder: 'rgba(126, 188, 92, 0.35)',
+  greenAccent: '#16a249',
   greenDark: '#14532d',
-  greenText: '#15803d',
+  greenText: '#16a249',
   greenTextBold: '#166534',
 
-  // Neutrals
-  border: '#e8e3d9',
-  borderLight: '#e5e7eb',
-  borderMuted: '#e7e5e4',
-  divider: '#e2e8f0',
+  borderLight: '#dad2c8',
+  borderMuted: '#e7e1da',
+  divider: '#dad2c8',
 
-  // Overlays
   overlayLight: 'rgba(255, 255, 255, 0.1)',
   overlayMedium: 'rgba(255, 255, 255, 0.2)',
   overlayStrong: 'rgba(255, 255, 255, 0.6)',
-  overlayGreen: 'rgba(132, 192, 89, 0.35)',
-
-  // Misc
-  black: '#000',
-  white: '#ffffff',
+  overlayGreen: 'rgba(126, 188, 92, 0.35)',
 } as const;

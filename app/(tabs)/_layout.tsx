@@ -8,14 +8,14 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: "#84c059",
-        tabBarInactiveTintColor: "#718096",
+        tabBarActiveTintColor: "#7ebc5c",
+        tabBarInactiveTintColor: "#816e65",
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarStyle: { display: "none" },
         tabBarLabelStyle: {
           fontSize: 13,
-          fontFamily: "PlusJakartaSans_600SemiBold",
+          fontFamily: "Inter_600SemiBold",
         },
       }}
     >
