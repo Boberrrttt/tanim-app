@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -20,35 +20,16 @@ import {
   BrainCircuit,
 } from 'lucide-react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { GetWeatherToday } from '@/services/weather.service';
-import { getSoilHealth } from '@/services/soil-health.service';
-import { getFarms } from '@/services/farm.service';
 import { isAbortLikeError } from '@/services/api';
-import { predict } from '@/services/ml.service';
+import { useFarmDetailData } from '@/hooks/use-farm-detail-data';
 import { fontFamily, fontSize, radius, colors, spacing, shadow } from '@/constants/design-tokens';
-import { IFarm } from '@/types/farm.types';
-import { ISoilHealth } from '@/types/soil-health.types';
-
-interface WeatherData {
-  city?: string;
-  country?: string;
-  latitude?: number;
-  longitude?: number;
-  temperature: number;
-  feels_like?: number;
-  humidity: number;
-  pressure?: number;
-  description: string;
-  wind_speed: number;
-  wind_direction?: number;
-  visibility?: number;
-  timestamp?: number;
-}
-
-interface CropProbability {
-  crop_class: string;
-  probability: number;
-}
+import FarmingTimeline from '@/components/FarmingTimeline';
+import {
+  getCropCycleMeta,
+  getCurrentCycleDay,
+  getCycleEndDate,
+  getDefaultPlannedPlantingDate,
+} from '@/constants/crop-cycle';
 
 const getFertilizerRecommendation = (crop: string) => {
   const cropLower = crop.toLowerCase();
@@ -197,121 +178,28 @@ export default function FarmDetailsScreen() {
   const { id: idParam } = useLocalSearchParams<{ id: string | string[] }>();
   const id = Array.isArray(idParam) ? idParam[0] : idParam;
   const router = useRouter();
-  const [farm, setFarm] = useState<IFarm | null>(null);
-  const [soilHealth, setSoilHealth] = useState<ISoilHealth | null>(null);
-  const [weather, setWeather] = useState<WeatherData | null>(null);
-  const [topCrops, setTopCrops] = useState<CropProbability[]>([]);
   const [selectedCrop, setSelectedCrop] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+
+  const { farm, soilHealth, weather, topCrops, farmsError, isInitialLoading } = useFarmDetailData(id);
 
   const todayIs = `Today: ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`;
 
   useEffect(() => {
-    if (!id) return;
-
-    const ac = new AbortController();
-    let cancelled = false;
-
-    const loadData = async () => {
-      setLoading(true);
-      setSelectedCrop(null);
-      try {
-        const signal = ac.signal;
-        const [farmsOutcome, soilOutcome] = await Promise.allSettled([
-          getFarms({ signal }),
-          getSoilHealth({ farm_id: id, signal }),
-        ]);
-
-        if (cancelled) return;
-
-        if (farmsOutcome.status === 'rejected') {
-          if (isAbortLikeError(farmsOutcome.reason)) return;
-          throw farmsOutcome.reason;
-        }
-
-        let soilRes: { data?: ISoilHealth[] } = { data: [] };
-        if (soilOutcome.status === 'fulfilled') {
-          soilRes = soilOutcome.value;
-        } else if (!isAbortLikeError(soilOutcome.reason)) {
-          if (__DEV__) {
-            console.warn('[farm detail] soil health failed:', soilOutcome.reason);
-          }
-        }
-
-        const farmsRes = farmsOutcome.value;
-        const farms = farmsRes?.data || [];
-        const foundFarm = farms.find((f: IFarm) => f.farm_id === id);
-        setFarm(foundFarm || null);
-
-        const soilData = soilRes?.data?.[0] ?? null;
-        setSoilHealth(soilData);
-
-        if (foundFarm?.farm_location) {
-          try {
-            const weatherRes = await GetWeatherToday(
-              foundFarm.farm_location.latitude,
-              foundFarm.farm_location.longitude
-            );
-            if (!cancelled) {
-              setWeather(weatherRes?.data ?? weatherRes ?? null);
-            }
-          } catch {
-            if (!cancelled) setWeather(null);
-          }
-        }
-
-        if (cancelled) return;
-
-        if (soilData) {
-          try {
-            const features = [
-              soilData.nitrogen,
-              soilData.phosphorus,
-              soilData.potassium,
-              soilData.ph,
-              soilData.salinity,
-              soilData.temperature,
-              soilData.moisture,
-            ];
-            const predRes = await predict(features, id);
-            if (cancelled) return;
-            const data = predRes?.data ?? predRes;
-            const probs = data?.probabilities ?? [];
-            const sorted = [...probs].sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0));
-            const top3 = sorted.slice(0, 3);
-            setTopCrops(top3);
-          } catch (err) {
-            if (!cancelled && !isAbortLikeError(err)) {
-              console.error('Error fetching crop prediction:', err);
-            }
-            if (!cancelled) setTopCrops([]);
-          }
-        } else {
-          setTopCrops([]);
-        }
-      } catch (error) {
-        if (cancelled || isAbortLikeError(error)) return;
-        console.error('Error loading farm details:', error);
-        Alert.alert(
-          'Error',
-          'Could not load farm details. Please try again.'
-        );
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
-
-    loadData();
-    return () => {
-      cancelled = true;
-      ac.abort();
-      setLoading(false);
-    };
+    setSelectedCrop(null);
   }, [id]);
 
-  if (loading) {
+  useEffect(() => {
+    if (!farmsError || isAbortLikeError(farmsError)) return;
+    console.error('Error loading farm details:', farmsError);
+    Alert.alert('Error', 'Could not load farm details. Please try again.');
+  }, [farmsError]);
+
+  const cycleStartDate = useMemo(() => {
+    if (!selectedCrop) return null;
+    return getDefaultPlannedPlantingDate();
+  }, [selectedCrop]);
+
+  if (!id || isInitialLoading) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.topBar}>
@@ -334,6 +222,16 @@ export default function FarmDetailsScreen() {
 
   const hasCropSuggestion = topCrops.length > 0;
   const fertilizerAdvice = selectedCrop ? getFertilizerRecommendation(selectedCrop) : null;
+
+  const cropCycleMeta = selectedCrop ? getCropCycleMeta(selectedCrop) : null;
+  const cycleEndDate =
+    cycleStartDate && cropCycleMeta
+      ? getCycleEndDate(cycleStartDate, cropCycleMeta.totalDays)
+      : null;
+  const cycleDay =
+    cycleStartDate && cropCycleMeta
+      ? getCurrentCycleDay(cycleStartDate, cropCycleMeta.totalDays)
+      : 0;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -546,6 +444,20 @@ export default function FarmDetailsScreen() {
               Fertilizer Advice {selectedCrop ? `for ${selectedCrop}` : ''}
             </Text>
           </View>
+
+          {selectedCrop && cropCycleMeta && cycleStartDate && cycleEndDate ? (
+            <View style={styles.timelineWrap}>
+              <FarmingTimeline
+                cropName={selectedCrop}
+                cycleStartDate={cycleStartDate}
+                cycleEndDate={cycleEndDate}
+                totalDays={cropCycleMeta.totalDays}
+                currentDay={cycleDay}
+                phases={cropCycleMeta.phases}
+                plantingWindowNote={cropCycleMeta.plantingWindowNote}
+              />
+            </View>
+          ) : null}
 
           {fertilizerAdvice ? (
             fertilizerAdvice.map((fert) => (
@@ -952,6 +864,9 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm + 1,
     fontFamily: fontFamily.medium,
     color: colors.mutedForeground,
+  },
+  timelineWrap: {
+    marginBottom: spacing.lg,
   },
   fertilizerCard: {
     backgroundColor: colors.background,

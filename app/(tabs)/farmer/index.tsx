@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import useSWR from 'swr';
 import {
   View,
   Text,
@@ -11,37 +12,46 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Sprout, MapPin, LogOut, ChevronRight } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
-import { getFarms } from '../../../services/farm.service';
+import { getFarms } from '@/services/farm.service';
+import { swrKeys } from '@/constants/swr-keys';
 import { getUserData } from '@/services/token.service';
 import { colors, fontFamily, fontSize, radius, shadow, spacing } from '@/constants/design-tokens';
-import { IFarm } from '../../../types/farm.types';
+import { IFarm } from '@/types/farm.types';
 
 const FarmerScreen = () => {
   const router = useRouter();
-  const [farms, setFarms] = useState<IFarm[]>([]);
-  const [loading, setLoading] = useState(true);
   const [helloLine, setHelloLine] = useState('Hello, Farmer!');
 
+  const { data: farmsPayload, isLoading: farmsListLoading } = useSWR(
+    swrKeys.farmsList(),
+    () => getFarms(),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 60_000,
+    }
+  );
+
+  const farms: IFarm[] = farmsPayload?.data ?? [];
+  const loading = farmsListLoading && farmsPayload === undefined;
+
   useEffect(() => {
-    const getDetails = async () => {
+    let cancelled = false;
+    (async () => {
       try {
-        setLoading(true);
         const user = await getUserData();
+        if (cancelled) return;
         const first = user?.first_name?.trim() ?? '';
         const last = user?.last_name?.trim() ?? '';
         const full = [first, last].filter(Boolean).join(' ');
         setHelloLine(full ? `Hello, ${full}!` : 'Hello, Farmer!');
-        const farmsResponse = await getFarms();
-        const farmsData = farmsResponse?.data || [];
-        setFarms(farmsData);
-      } catch (error) {
-        console.error('Error fetching farm details:', error);
-      } finally {
-        setLoading(false);
+      } catch {
+        if (!cancelled) setHelloLine('Hello, Farmer!');
       }
+    })();
+    return () => {
+      cancelled = true;
     };
-
-    getDetails();
   }, []);
 
   const handleLogout = () => {

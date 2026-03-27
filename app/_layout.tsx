@@ -11,6 +11,7 @@ import {
 } from '@expo-google-fonts/inter';
 import { useEffect } from 'react';
 import { View, ActivityIndicator } from 'react-native';
+import { SWRConfig } from 'swr';
 import 'react-native-reanimated';
 
 import { colors } from '@/constants/design-tokens';
@@ -50,12 +51,19 @@ export default function RootLayout() {
   }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="login" options={{ animation: 'default' }} />
-        <Stack.Screen name="(tabs)" options={{ animation: 'none' }} />
-      </Stack>
-      <StatusBar style="dark" />
-    </ThemeProvider>
+    <SWRConfig
+      value={{
+        revalidateOnFocus: false,
+        dedupingInterval: 3000,
+      }}
+    >
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="login" options={{ animation: 'default' }} />
+          <Stack.Screen name="(tabs)" options={{ animation: 'none' }} />
+        </Stack>
+        <StatusBar style="dark" />
+      </ThemeProvider>
+    </SWRConfig>
   );
 }
