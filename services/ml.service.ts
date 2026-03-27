@@ -13,9 +13,23 @@ export const predict = async (features: number[], farmId?: string) => {
       features: validFeatures,
     };
     if (farmId) body.farm_id = farmId;
-    const response = await apiClient.post("/ml", body, { timeout: 0 });
+    // Match FastAPI route `POST /ml/` (trailing slash); `/ml` triggers 307 and can break POST bodies.
+    const response = await apiClient.post("/ml/", body, { timeout: 0 });
+    if (__DEV__) {
+      console.log("[ML] POST /ml/ response:", JSON.stringify(response.data));
+    }
     return response.data;
-  } catch (error) {
+  } catch (error: unknown) {
+    const ax = error as {
+      response?: { status?: number; data?: unknown };
+      message?: string;
+    };
+    if (__DEV__) {
+      console.log("[ML] POST /ml/ error:", ax?.message, {
+        status: ax?.response?.status,
+        data: ax?.response?.data,
+      });
+    }
     console.error("Error predicting:", error);
     throw error;
   }

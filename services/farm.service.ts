@@ -1,11 +1,17 @@
-import apiClient from './api';
+import apiClient, { isAbortLikeError } from './api';
 
-export const getFarms = async () => {
+export type FarmRequestOptions = { signal?: AbortSignal };
+
+export const getFarms = async (options?: FarmRequestOptions) => {
     try {
-        const response = await apiClient.get('/farm');
+        const response = await apiClient.get('/farm/', {
+            signal: options?.signal,
+        });
         return response.data;
     } catch (error) {
-        console.error('Error fetching farms:', error);
+        if (!isAbortLikeError(error)) {
+            console.error('Error fetching farms:', error);
+        }
         throw error;
     }
 };

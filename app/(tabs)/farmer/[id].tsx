@@ -23,6 +23,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { GetWeatherToday } from '@/services/weather.service';
 import { getSoilHealth } from '@/services/soil-health.service';
 import { getFarms } from '@/services/farm.service';
+import { isAbortLikeError } from '@/services/api';
 import { predict } from '@/services/ml.service';
 import { fontFamily, fontSize, radius, colors, spacing, shadow } from '@/constants/design-tokens';
 import { IFarm } from '@/types/farm.types';
@@ -193,7 +194,8 @@ const HealthCard = ({
 };
 
 export default function FarmDetailsScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id: idParam } = useLocalSearchParams<{ id: string | string[] }>();
+  const id = Array.isArray(idParam) ? idParam[0] : idParam;
   const router = useRouter();
   const [farm, setFarm] = useState<IFarm | null>(null);
   const [soilHealth, setSoilHealth] = useState<ISoilHealth | null>(null);
@@ -207,15 +209,36 @@ export default function FarmDetailsScreen() {
   useEffect(() => {
     if (!id) return;
 
+    const ac = new AbortController();
+    let cancelled = false;
+
     const loadData = async () => {
       setLoading(true);
       setSelectedCrop(null);
       try {
-        const [farmsRes, soilRes] = await Promise.all([
-          getFarms(),
-          getSoilHealth({ farm_id: id }).catch(() => ({ data: [] })),
+        const signal = ac.signal;
+        const [farmsOutcome, soilOutcome] = await Promise.allSettled([
+          getFarms({ signal }),
+          getSoilHealth({ farm_id: id, signal }),
         ]);
 
+        if (cancelled) return;
+
+        if (farmsOutcome.status === 'rejected') {
+          if (isAbortLikeError(farmsOutcome.reason)) return;
+          throw farmsOutcome.reason;
+        }
+
+        let soilRes: { data?: ISoilHealth[] } = { data: [] };
+        if (soilOutcome.status === 'fulfilled') {
+          soilRes = soilOutcome.value;
+        } else if (!isAbortLikeError(soilOutcome.reason)) {
+          if (__DEV__) {
+            console.warn('[farm detail] soil health failed:', soilOutcome.reason);
+          }
+        }
+
+        const farmsRes = farmsOutcome.value;
         const farms = farmsRes?.data || [];
         const foundFarm = farms.find((f: IFarm) => f.farm_id === id);
         setFarm(foundFarm || null);
@@ -229,11 +252,15 @@ export default function FarmDetailsScreen() {
               foundFarm.farm_location.latitude,
               foundFarm.farm_location.longitude
             );
-            setWeather(weatherRes?.data ?? weatherRes ?? null);
+            if (!cancelled) {
+              setWeather(weatherRes?.data ?? weatherRes ?? null);
+            }
           } catch {
-            setWeather(null);
+            if (!cancelled) setWeather(null);
           }
         }
+
+        if (cancelled) return;
 
         if (soilData) {
           try {
@@ -247,30 +274,41 @@ export default function FarmDetailsScreen() {
               soilData.moisture,
             ];
             const predRes = await predict(features, id);
+            if (cancelled) return;
             const data = predRes?.data ?? predRes;
             const probs = data?.probabilities ?? [];
             const sorted = [...probs].sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0));
             const top3 = sorted.slice(0, 3);
             setTopCrops(top3);
           } catch (err) {
-            console.error('Error fetching crop prediction:', err);
-            setTopCrops([]);
+            if (!cancelled && !isAbortLikeError(err)) {
+              console.error('Error fetching crop prediction:', err);
+            }
+            if (!cancelled) setTopCrops([]);
           }
         } else {
           setTopCrops([]);
         }
       } catch (error) {
+        if (cancelled || isAbortLikeError(error)) return;
         console.error('Error loading farm details:', error);
         Alert.alert(
           'Error',
           'Could not load farm details. Please try again.'
         );
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
     loadData();
+    return () => {
+      cancelled = true;
+      ac.abort();
+      setLoading(false);
+    };
   }, [id]);
 
   if (loading) {

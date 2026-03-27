@@ -1,15 +1,19 @@
-import apiClient from './api';
+import apiClient, { isAbortLikeError } from './api';
 
-interface getSoilHealthProps {
-    farm_id: string
+export interface GetSoilHealthProps {
+    farm_id: string;
+    signal?: AbortSignal;
 }
 
-export const getSoilHealth = async ({ farm_id }: getSoilHealthProps) => {
-    try {   
-        const response = await apiClient.get(`/test/${farm_id}`);
+export const getSoilHealth = async ({ farm_id, signal }: GetSoilHealthProps) => {
+    try {
+        const id = encodeURIComponent(farm_id);
+        const response = await apiClient.get(`/test/${id}`, { signal });
         return response.data;
     } catch (error) {
-        console.error('Error fetching soil health:', error);
+        if (!isAbortLikeError(error)) {
+            console.error('Error fetching soil health:', error);
+        }
         throw error;
     }
-}
+};

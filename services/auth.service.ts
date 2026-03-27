@@ -16,6 +16,10 @@ export interface AuthResponse {
   data?: {
     farmer_id?: string;
     username: string;
+    first_name?: string;
+    last_name?: string;
+    access_token?: string;
+    refresh_token?: string;
   };
 }
 

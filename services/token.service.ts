@@ -8,6 +8,8 @@ export interface UserData {
   farmer_id?: string;
   username: string;
   role?: 'farmer' | 'admin';
+  first_name?: string;
+  last_name?: string;
 }
 
 export const setAccessToken = async (token: string): Promise<void> => {

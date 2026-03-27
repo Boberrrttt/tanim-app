@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Sprout, MapPin, LogOut, ChevronRight } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { getFarms } from '../../../services/farm.service';
+import { getUserData } from '@/services/token.service';
 import { colors, fontFamily, fontSize, radius, shadow, spacing } from '@/constants/design-tokens';
 import { IFarm } from '../../../types/farm.types';
 
@@ -19,11 +20,17 @@ const FarmerScreen = () => {
   const router = useRouter();
   const [farms, setFarms] = useState<IFarm[]>([]);
   const [loading, setLoading] = useState(true);
+  const [helloLine, setHelloLine] = useState('Hello, Farmer!');
 
   useEffect(() => {
     const getDetails = async () => {
       try {
         setLoading(true);
+        const user = await getUserData();
+        const first = user?.first_name?.trim() ?? '';
+        const last = user?.last_name?.trim() ?? '';
+        const full = [first, last].filter(Boolean).join(' ');
+        setHelloLine(full ? `Hello, ${full}!` : 'Hello, Farmer!');
         const farmsResponse = await getFarms();
         const farmsData = farmsResponse?.data || [];
         setFarms(farmsData);
@@ -52,7 +59,7 @@ const FarmerScreen = () => {
                 Tanim
               </Text>
               <Text style={styles.headerSubtitle} numberOfLines={1}>
-                Hello, Farmer!
+                {helloLine}
               </Text>
             </View>
           </View>
