@@ -1,9 +1,10 @@
 export interface IFarm {
   farm_id: string;
   farm_name: string;
-  farm_location: {
-    latitude: number;
-    longitude: number;
-  };
+  /** Street address; optional. */
+  farm_location?: string | null;
+  /** WGS84; optional. */
+  latitude?: number | null;
+  longitude?: number | null;
   farm_measurement: number;
 }

@@ -21,10 +21,11 @@ import { IFarm } from '@/types/farm.types';
 const FarmerScreen = () => {
   const router = useRouter();
   const [helloLine, setHelloLine] = useState('Hello, Farmer!');
+  const [farmerId, setFarmerId] = useState<string | null>(null);
 
   const { data: farmsPayload, isLoading: farmsListLoading } = useSWR(
-    swrKeys.farmsList(),
-    () => getFarms(),
+    farmerId ? swrKeys.farmsList(farmerId) : null,
+    () => getFarms(farmerId!),
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: true,
@@ -33,7 +34,8 @@ const FarmerScreen = () => {
   );
 
   const farms: IFarm[] = farmsPayload?.data ?? [];
-  const loading = farmsListLoading && farmsPayload === undefined;
+  const loading =
+    farmerId === null || (farmsListLoading && farmsPayload === undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,12 +43,16 @@ const FarmerScreen = () => {
       try {
         const user = await getUserData();
         if (cancelled) return;
+        setFarmerId(user?.farmer_id ?? null);
         const first = user?.first_name?.trim() ?? '';
         const last = user?.last_name?.trim() ?? '';
         const full = [first, last].filter(Boolean).join(' ');
         setHelloLine(full ? `Hello, ${full}!` : 'Hello, Farmer!');
       } catch {
-        if (!cancelled) setHelloLine('Hello, Farmer!');
+        if (!cancelled) {
+          setFarmerId(null);
+          setHelloLine('Hello, Farmer!');
+        }
       }
     })();
     return () => {

@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { getFarms } from '@/services/farm.service';
+import { getUserData } from '@/services/token.service';
 import { getSoilHealth } from '@/services/soil-health.service';
-import { GetWeatherToday } from '@/services/weather.service';
 import { predict } from '@/services/ml.service';
+import { GetWeatherToday } from '@/services/weather.service';
 import { swrKeys } from '@/constants/swr-keys';
 import type { IFarm } from '@/types/farm.types';
 import type { ISoilHealth } from '@/types/soil-health.types';
@@ -49,13 +50,26 @@ function soilFingerprint(soil: ISoilHealth): string {
 }
 
 /**
- * Parallel SWR streams for farm detail: farms list, soil, weather, ML prediction.
+ * Parallel SWR streams for farm detail: farms list, soil, weather (lat/lon), ML prediction.
  * Cached keys match farmer index (`farmsList`) so list → detail avoids duplicate farm fetches.
  */
 export function useFarmDetailData(farmId: string | undefined) {
+  const [farmerId, setFarmerId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const user = await getUserData();
+      if (!cancelled) setFarmerId(user?.farmer_id ?? null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const farmsSWR = useSWR(
-    farmId ? swrKeys.farmsList() : null,
-    () => getFarms(),
+    farmId && farmerId ? swrKeys.farmsList(farmerId) : null,
+    () => getFarms(farmerId!),
     { ...sharedSwrOptions, dedupingInterval: 60_000 }
   );
 
@@ -76,8 +90,8 @@ export function useFarmDetailData(farmId: string | undefined) {
     return arr?.[0] ?? null;
   }, [soilSWR.data]);
 
-  const lat = farm?.farm_location?.latitude;
-  const lon = farm?.farm_location?.longitude;
+  const lat = farm?.latitude;
+  const lon = farm?.longitude;
   const hasCoords = lat != null && lon != null;
 
   const weatherSWR = useSWR(
@@ -139,7 +153,10 @@ export function useFarmDetailData(farmId: string | undefined) {
     /** True only when there is no cached data yet (avoids flashing loader on revalidate). */
     isInitialLoading: !!farmId && !pageReady,
     isValidating:
-      farmsSWR.isValidating || soilSWR.isValidating || weatherSWR.isValidating || predictSWR.isValidating,
+      farmsSWR.isValidating ||
+      soilSWR.isValidating ||
+      weatherSWR.isValidating ||
+      predictSWR.isValidating,
     mutate: {
       farms: farmsSWR.mutate,
       soil: soilSWR.mutate,
