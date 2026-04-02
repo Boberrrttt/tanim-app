@@ -1,20 +1,20 @@
 /**
- * Growth cycles for UI calendars. Day 1 = planting or field transplant (not seed in tray).
+ * Crop growth cycles for the FarmingTimeline UI. Day 1 = field planting or transplant.
  *
- * Calibrated from public agronomy references (mid-range typical cultivars). Verify against
- * your seed tag, local extension, and climate.
+ * Vocabulary aligns with USTP RSL workbook **Crops Planted** (Consolidated Soil Info RSL xlsx);
+ * calendar lengths follow agronomy references (IRRI, FAO, land-grant extension), not spreadsheet columns.
+ * All templates use four UI phases: Sowing, Vegetative, Flowering, Harvest (some “Flowering” labels are
+ * agronomic shorthand, e.g. sugarcane ripening — see per-template notes).
  *
- * References consulted:
- * - Rice: IRRI Rice Knowledge Bank (growth duration by variety class; transplant-to-maturity)
- * - Corn: Purdue Extension / agronomy guides (grain stages; sweet corn ~60–100 d from seed)
- * - Tomato: Cornell Garden-Based Learning, USU Extension (65–85 d from transplant)
- * - Eggplant: Clemson HGIC, MU Extension (≈50–80 d from transplant by cultivar)
- * - Potato: Illinois Extension Hort Answers, regional guides (≈75–120+ d by type)
- * - Cabbage: MSU / SDSU Extension (≈45–90 d from transplant)
- * - Cotton: Cotton.org ACE, UGA extension (≈150–180 d planting to harvest-ready)
- * - Tobacco: FAO crop information, field guides (≈90–120 d transplant to harvest)
- * - Sugarcane: FAO, UF-IFAS EDIS, Growables (plant crop commonly 12–18 mo; ~15 mo norm)
+ * @see Appendix A/B in project plan `csv-aligned_crop_timelines_0339dc8d.plan.md` (reference only)
  */
+
+import {
+  resolveCropToTemplateId,
+  type TimelineTemplateId,
+} from '@/constants/crop-cycle-aliases';
+
+export type { TimelineTemplateId } from '@/constants/crop-cycle-aliases';
 
 export type CropPhaseDef = {
   name: string;
@@ -29,121 +29,431 @@ export type CropCycleMeta = {
   plantingWindowNote?: string;
 };
 
-const DEFAULT_CYCLE: CropCycleMeta = {
-  totalDays: 85,
-  phases: [
-    { name: 'Establishment', dayStart: 1, dayEnd: 12, description: 'Germination and early root growth' },
-    { name: 'Vegetative', dayStart: 13, dayEnd: 38, description: 'Leaf and canopy development' },
-    { name: 'Reproductive', dayStart: 39, dayEnd: 58, description: 'Flowering and early fruit or grain set' },
-    { name: 'Maturation', dayStart: 59, dayEnd: 78, description: 'Sizing and ripening' },
-    { name: 'Harvest', dayStart: 79, dayEnd: 85, description: 'Ready to harvest' },
-  ],
-  plantingWindowNote: 'Generic template — match days-to-maturity on your seed or transplant label.',
-};
+const PHASE_NAMES = ['Sowing', 'Vegetative', 'Flowering', 'Harvest'] as const;
 
-const CROP_CYCLES: Record<string, CropCycleMeta> = {
-  corn: {
-    totalDays: 105,
-    phases: [
-      { name: 'Emergence', dayStart: 1, dayEnd: 14, description: 'Germination through early leaf stages (VE–V4)' },
-      { name: 'Vegetative', dayStart: 15, dayEnd: 58, description: 'Stalk and leaf growth until near tassel' },
-      { name: 'Tassel & silk', dayStart: 59, dayEnd: 78, description: 'Pollination window; critical for grain set' },
-      { name: 'Grain fill', dayStart: 79, dayEnd: 99, description: 'Kernel dough to dent; moisture still high' },
-      { name: 'Maturity', dayStart: 100, dayEnd: 105, description: 'Black layer / harvest moisture for grain corn' },
+function fourPhaseMeta(
+  totalDays: number,
+  spans: readonly [readonly [number, number], readonly [number, number], readonly [number, number], readonly [number, number]],
+  descriptions: readonly [string, string, string, string],
+  plantingWindowNote?: string
+): CropCycleMeta {
+  const phases: CropPhaseDef[] = PHASE_NAMES.map((name, i) => ({
+    name,
+    dayStart: spans[i][0],
+    dayEnd: spans[i][1],
+    description: descriptions[i],
+  }));
+  return { totalDays, phases, plantingWindowNote };
+}
+
+export const TIMELINE_TEMPLATES: Record<TimelineTemplateId, CropCycleMeta> = {
+  DEFAULT: fourPhaseMeta(
+    85,
+    [
+      [1, 12],
+      [13, 38],
+      [39, 58],
+      [59, 85],
     ],
-    plantingWindowNote:
-      'Sweet corn is often shorter (~60–100 d); field/grain hybrids often 100–120+ d — check RM on bag.',
-  },
-  eggplant: {
-    totalDays: 72,
-    phases: [
-      { name: 'Establishment', dayStart: 1, dayEnd: 12, description: 'Transplant shock recovery and rooting' },
-      { name: 'Vegetative', dayStart: 13, dayEnd: 32, description: 'Branching and canopy build' },
-      { name: 'Flowering', dayStart: 33, dayEnd: 48, description: 'Bloom and fruit set' },
-      { name: 'Fruiting', dayStart: 49, dayEnd: 63, description: 'Fruit enlargement' },
-      { name: 'Harvest', dayStart: 64, dayEnd: 72, description: 'Repeated picks as fruits reach market size' },
+    [
+      'Establishment from seed or transplant.',
+      'Leaf and canopy development.',
+      'Flowering and early fruit or grain set.',
+      'Sizing, ripening, and harvest readiness.',
     ],
-    plantingWindowNote: 'Cultivars range ~50–80 d after transplant; warm nights (>15°C) help fruit set.',
-  },
-  tobacco: {
-    totalDays: 110,
-    phases: [
-      { name: 'Establishment', dayStart: 1, dayEnd: 20, description: 'Rooting after transplant' },
-      { name: 'Vegetative', dayStart: 21, dayEnd: 55, description: 'Rapid leaf expansion (grand growth)' },
-      { name: 'Topping & suckering', dayStart: 56, dayEnd: 80, description: 'Flower removal and sucker control' },
-      { name: 'Ripening', dayStart: 81, dayEnd: 100, description: 'Leaf color and body for curing type' },
-      { name: 'Harvest', dayStart: 101, dayEnd: 110, description: 'Priming or stalk harvest per local practice' },
+    'Generic template — match days-to-maturity on your seed or transplant label.'
+  ),
+
+  CEREAL: fourPhaseMeta(
+    105,
+    [
+      [1, 14],
+      [15, 58],
+      [59, 78],
+      [79, 105],
     ],
-    plantingWindowNote: 'FAO cites ~90–120 d frost-free after transplant; follow local rules and varieties.',
-  },
-  rice: {
-    totalDays: 120,
-    phases: [
-      { name: 'Establishment', dayStart: 1, dayEnd: 30, description: 'Tillering and root system development' },
-      { name: 'Vegetative', dayStart: 31, dayEnd: 70, description: 'Active tillering; N management critical' },
-      { name: 'Reproductive', dayStart: 71, dayEnd: 100, description: 'Panicle initiation through heading' },
-      { name: 'Ripening', dayStart: 101, dayEnd: 115, description: 'Grain filling and moisture drop' },
-      { name: 'Harvest', dayStart: 116, dayEnd: 120, description: 'Combine or manual at target moisture' },
+    [
+      'Emergence and early vegetative growth.',
+      'Stalk and leaf development until near reproductive stage.',
+      'Pollination and reproductive window (e.g. tassel/silk for maize).',
+      'Grain fill through physiological maturity / harvest moisture.',
     ],
-    plantingWindowNote:
-      'IRRI: short types ~100–120 d, medium ~120–140 d, long 160+ from seeding/transplant — adjust for cultivar.',
-  },
-  tomato: {
-    totalDays: 75,
-    phases: [
-      { name: 'Establishment', dayStart: 1, dayEnd: 7, description: 'Transplant establishment' },
-      { name: 'Vegetative', dayStart: 8, dayEnd: 28, description: 'Vine and leaf growth' },
-      { name: 'Flowering', dayStart: 29, dayEnd: 50, description: 'Bloom and fruit set' },
-      { name: 'Fruiting', dayStart: 51, dayEnd: 68, description: 'Fruit development and sizing' },
-      { name: 'Harvest', dayStart: 69, dayEnd: 75, description: 'First picks; indeterminates keep producing' },
+    'Sweet corn is often shorter (~60–100 d); field/grain hybrids often 100–120+ d — check RM on bag.'
+  ),
+
+  RICE: fourPhaseMeta(
+    120,
+    [
+      [1, 30],
+      [31, 70],
+      [71, 100],
+      [101, 120],
     ],
-    plantingWindowNote: 'Packet “days to maturity” is usually from transplant; early types ~65 d, late ~85 d.',
-  },
-  sugarcane: {
-    totalDays: 450,
-    phases: [
-      { name: 'Germination', dayStart: 1, dayEnd: 60, description: 'Shoot emergence and early tillers' },
-      { name: 'Tillering', dayStart: 61, dayEnd: 150, description: 'Stool building; stand establishment' },
-      { name: 'Grand growth', dayStart: 151, dayEnd: 300, description: 'Rapid stalk elongation and dry matter' },
-      { name: 'Ripening', dayStart: 301, dayEnd: 390, description: 'Sucrose accumulation; avoid late drought stress' },
-      { name: 'Harvest', dayStart: 391, dayEnd: 450, description: 'Plant crop ~12–18 mo globally; ratoon resets cycle' },
+    [
+      'Establishment, rooting, and tillering.',
+      'Active tillering and vegetative growth.',
+      'Panicle development through heading and flowering.',
+      'Ripening, grain fill, and harvest timing.',
     ],
-    plantingWindowNote:
-      'FAO / regional guides: plant crop often 12–18 months (many areas ~15–16 mo optimum age).',
-  },
-  cabbage: {
-    totalDays: 68,
-    phases: [
-      { name: 'Establishment', dayStart: 1, dayEnd: 12, description: 'Transplant rooting' },
-      { name: 'Vegetative', dayStart: 13, dayEnd: 35, description: 'Leaf frame before head' },
-      { name: 'Heading', dayStart: 36, dayEnd: 55, description: 'Head formation and firming' },
-      { name: 'Maturation', dayStart: 56, dayEnd: 63, description: 'Dense head; watch splitting in heat' },
-      { name: 'Harvest', dayStart: 64, dayEnd: 68, description: 'Cut when head is firm' },
+    'IRRI: short types ~100–120 d, medium ~120–140 d, long 160+ — adjust for cultivar and transplant vs DSR.'
+  ),
+
+  WHEAT: fourPhaseMeta(
+    115,
+    [
+      [1, 15],
+      [16, 65],
+      [66, 95],
+      [96, 115],
     ],
-    plantingWindowNote: 'Fast cultivars ~55–65 d from transplant; storage types run longer.',
-  },
-  cotton: {
-    totalDays: 165,
-    phases: [
-      { name: 'Stand', dayStart: 1, dayEnd: 35, description: 'Emergence through early nodes' },
-      { name: 'Squaring', dayStart: 36, dayEnd: 75, description: 'Square formation and vegetative peak' },
-      { name: 'Flowering', dayStart: 76, dayEnd: 120, description: 'Bloom, boll set, heat-unit driven' },
-      { name: 'Boll fill', dayStart: 121, dayEnd: 155, description: 'Fiber and seed development' },
-      { name: 'Harvest', dayStart: 156, dayEnd: 165, description: 'Defoliate when most bolls open; ~150–180 d typical' },
+    [
+      'Emergence and early tillering.',
+      'Tillering, stem elongation, and boot stage.',
+      'Heading, anthesis, and early grain fill.',
+      'Dough, maturity, and harvest readiness.',
     ],
-    plantingWindowNote: 'Industry guides cite ~150–180 d planting to harvest-ready; driven by DD60s and variety.',
-  },
-  potato: {
-    totalDays: 100,
-    phases: [
-      { name: 'Sprouting', dayStart: 1, dayEnd: 20, description: 'Emergence and stolon setup' },
-      { name: 'Vegetative', dayStart: 21, dayEnd: 50, description: 'Canopy closure' },
-      { name: 'Tuber initiation', dayStart: 51, dayEnd: 70, description: 'Tuber set; critical moisture' },
-      { name: 'Bulking', dayStart: 71, dayEnd: 94, description: 'Tuber enlargement' },
-      { name: 'Harvest', dayStart: 95, dayEnd: 100, description: 'Vine senescence; skin set before dig' },
+    'Spring wheat commonly ~90–140 d from planting; variety maturity class matters.'
+  ),
+
+  TOMATO: fourPhaseMeta(
+    75,
+    [
+      [1, 7],
+      [8, 28],
+      [29, 50],
+      [51, 75],
     ],
-    plantingWindowNote: 'Early varieties ~75–90 d; maincrop often 90–120 d — check your variety class.',
-  },
+    [
+      'Transplant establishment.',
+      'Vine and leaf growth.',
+      'Bloom and fruit set.',
+      'Fruit development, sizing, and harvest picks.',
+    ],
+    'Packet “days to maturity” is usually from transplant; early types ~65 d, late ~85 d.'
+  ),
+
+  EGGPLANT: fourPhaseMeta(
+    72,
+    [
+      [1, 12],
+      [13, 32],
+      [33, 48],
+      [49, 72],
+    ],
+    [
+      'Transplant establishment and rooting.',
+      'Branching and canopy build.',
+      'Bloom and fruit set.',
+      'Fruit enlargement and repeated harvest.',
+    ],
+    'Cultivars range ~50–80 d after transplant; warm nights help fruit set.'
+  ),
+
+  POTATO: fourPhaseMeta(
+    100,
+    [
+      [1, 20],
+      [21, 50],
+      [51, 70],
+      [71, 100],
+    ],
+    [
+      'Emergence and stolon setup.',
+      'Canopy closure and vegetative growth.',
+      'Tuber initiation and early bulking.',
+      'Tuber bulking, senescence, skin set, and harvest.',
+    ],
+    'Early varieties ~75–90 d; maincrop often 90–120 d — check your variety class.'
+  ),
+
+  CABBAGE: fourPhaseMeta(
+    68,
+    [
+      [1, 12],
+      [13, 35],
+      [36, 55],
+      [56, 68],
+    ],
+    [
+      'Transplant establishment.',
+      'Leaf frame before head.',
+      'Head formation and firming.',
+      'Maturation and harvest when head is firm.',
+    ],
+    'Fast cultivars ~55–65 d from transplant; storage types run longer.'
+  ),
+
+  COTTON: fourPhaseMeta(
+    165,
+    [
+      [1, 35],
+      [36, 75],
+      [76, 120],
+      [121, 165],
+    ],
+    [
+      'Emergence through early vegetative nodes.',
+      'Square formation and vegetative peak.',
+      'Bloom, boll set, and early boll development.',
+      'Boll fill, open boll, and defoliation/harvest timing.',
+    ],
+    '~150–180 d planting to harvest-ready; heat units (DD60s) often matter more than calendar days.'
+  ),
+
+  TOBACCO: fourPhaseMeta(
+    110,
+    [
+      [1, 20],
+      [21, 55],
+      [56, 80],
+      [81, 110],
+    ],
+    [
+      'Rooting after transplant.',
+      'Rapid leaf expansion (grand growth).',
+      'Topping, suckering, and ripening prep.',
+      'Leaf ripening, harvest, and curing window.',
+    ],
+    'FAO cites ~90–120 d frost-free after transplant; follow local rules and varieties.'
+  ),
+
+  SUGARCANE: fourPhaseMeta(
+    450,
+    [
+      [1, 60],
+      [61, 300],
+      [301, 390],
+      [391, 450],
+    ],
+    [
+      'Shoot emergence, establishment, and early tillers.',
+      'Tillering through grand growth and stalk elongation.',
+      'Ripening phase — sucrose accumulation (UI label “Flowering” is shorthand; flowering is usually avoided).',
+      'Harvest window for plant crop (~12–18 mo typical; region-dependent).',
+    ],
+    'FAO / regional guides: plant crop often 12–18 months (many areas ~15–16 mo optimum age).'
+  ),
+
+  CUCURBIT: fourPhaseMeta(
+    70,
+    [
+      [1, 10],
+      [11, 35],
+      [36, 55],
+      [56, 70],
+    ],
+    [
+      'Emergence and vine/runner establishment.',
+      'Vegetative growth and canopy development.',
+      'Bloom and fruit set.',
+      'Fruit sizing and harvest.',
+    ],
+    'Most cucurbits ~50–70 d to first harvest depending on variety and climate.'
+  ),
+
+  LEAFY: fourPhaseMeta(
+    45,
+    [
+      [1, 8],
+      [9, 22],
+      [23, 32],
+      [33, 45],
+    ],
+    [
+      'Germination or transplant establishment.',
+      'Rapid leaf production.',
+      'Late vegetative / pre-bolt (if applicable).',
+      'Harvest window for leaves or young shoots.',
+    ],
+    'Fast crops — timing varies sharply with heat, day length, and cultivar.'
+  ),
+
+  LEGUME: fourPhaseMeta(
+    75,
+    [
+      [1, 10],
+      [11, 40],
+      [41, 58],
+      [59, 75],
+    ],
+    [
+      'Emergence and nodulation establishment.',
+      'Vegetative growth and canopy.',
+      'Flowering and pod or nut formation.',
+      'Grain/pod fill and harvest.',
+    ],
+    'Compromise template: bush beans faster, peanuts longer — verify for your legume.'
+  ),
+
+  OKRA: fourPhaseMeta(
+    60,
+    [
+      [1, 8],
+      [9, 30],
+      [31, 45],
+      [46, 60],
+    ],
+    [
+      'Emergence and early growth.',
+      'Vegetative growth in warm conditions.',
+      'Flowering and pod set.',
+      'Repeated pod harvest while tender.',
+    ],
+    'Many cultivars ~50–60 d from planting in warm weather.'
+  ),
+
+  ROOT_BULB: fourPhaseMeta(
+    85,
+    [
+      [1, 12],
+      [13, 45],
+      [46, 65],
+      [66, 85],
+    ],
+    [
+      'Emergence and root establishment.',
+      'Vegetative tops and root enlargement.',
+      'Bulking and maturity indicators.',
+      'Harvest when size and quality targets are met.',
+    ],
+    'Onions and long-season roots may exceed this — use variety guidance.'
+  ),
+
+  GINGER: fourPhaseMeta(
+    270,
+    [
+      [1, 45],
+      [46, 150],
+      [151, 220],
+      [221, 270],
+    ],
+    [
+      'Rhizome sprouting and shoot establishment.',
+      'Strong vegetative growth.',
+      'Rhizome expansion and maturation.',
+      'Senescence cues and harvest of mature rhizomes.',
+    ],
+    'Often ~8–10 months to mature rhizome in the tropics.'
+  ),
+
+  CAMOTE: fourPhaseMeta(
+    120,
+    [
+      [1, 20],
+      [21, 55],
+      [56, 90],
+      [91, 120],
+    ],
+    [
+      'Slip/root establishment and vine growth.',
+      'Canopy development.',
+      'Tuber initiation and early bulking.',
+      'Tuber bulking and harvest before heavy frost.',
+    ],
+    'Sweet potato commonly ~100–120 d; taro (gabi) often longer in the field — illustrative here.'
+  ),
+
+  CASSAVA: fourPhaseMeta(
+    300,
+    [
+      [1, 30],
+      [31, 120],
+      [121, 240],
+      [241, 300],
+    ],
+    [
+      'Establishment and early vegetative growth.',
+      'Strong vegetative growth and starch accumulation start.',
+      'Storage root bulking.',
+      'Harvest window — often ~9–12 mo for many systems; wider range possible.',
+    ],
+    'Harvest age strongly affects yield and starch — follow local variety recommendations.'
+  ),
+
+  STRAWBERRY: fourPhaseMeta(
+    90,
+    [
+      [1, 14],
+      [15, 45],
+      [46, 70],
+      [71, 90],
+    ],
+    [
+      'Planting and crown establishment.',
+      'Runner and leaf development.',
+      'Flowering and fruit set (system-dependent).',
+      'Harvest period — highly dependent on June-bearing vs day-neutral systems.',
+    ],
+    'June-bearing types often little fruit in year one; day-neutral may fruit sooner — template is approximate.'
+  ),
+
+  PINEAPPLE: fourPhaseMeta(
+    540,
+    [
+      [1, 120],
+      [121, 300],
+      [301, 480],
+      [481, 540],
+    ],
+    [
+      'Establishment from slips, suckers, or crowns.',
+      'Vegetative growth and plant sizing.',
+      'Induction/flowering and fruit development (region and practice dependent).',
+      'Fruit maturation and harvest (~18 mo lower end; often longer).',
+    ],
+    'First harvest commonly ~18–24+ months from planting depending on propagation and induction.'
+  ),
+
+  ADLAI: fourPhaseMeta(
+    120,
+    [
+      [1, 25],
+      [26, 70],
+      [71, 100],
+      [101, 120],
+    ],
+    [
+      'Emergence and early tillering.',
+      'Vegetative growth.',
+      'Reproductive development and grain fill.',
+      'Maturity and harvest.',
+    ],
+    'Philippine extension often cites ~120 days or ~4–5 months; adjust for cultivar.'
+  ),
+
+  FORAGE_GRASS: fourPhaseMeta(
+    120,
+    [
+      [1, 30],
+      [31, 75],
+      [76, 100],
+      [101, 120],
+    ],
+    [
+      'Establishment after planting or ratoon.',
+      'Vegetative regrowth and tillering.',
+      'Pre-cut vegetative peak.',
+      'Cut-and-carry or grazing cycle end — management-driven, not fixed biology.',
+    ],
+    'Illustrative regrowth cycle; actual rotation depends on grazing or cutting schedule.'
+  ),
+
+  PERENNIAL_YEAR1: fourPhaseMeta(
+    365,
+    [
+      [1, 90],
+      [91, 210],
+      [211, 320],
+      [321, 365],
+    ],
+    [
+      'Planting and establishment.',
+      'Vegetative framework and root system building.',
+      'Pre-productive growth or first reproductive cycle (species-dependent).',
+      'Late establishment year — not a real “harvest” calendar for all trees.',
+    ],
+    'ILLUSTRATIVE ONLY: trees and plantation crops differ widely — use species-specific local guidance.'
+  ),
 };
 
 export function addDays(d: Date, n: number): Date {
@@ -195,14 +505,7 @@ export function formatTimelineDate(d: Date): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function resolveCropKey(crop: string): string {
-  const cropLower = crop.toLowerCase();
-  const key = Object.keys(CROP_CYCLES).find((k) => cropLower.includes(k));
-  return key ?? 'default';
-}
-
 export function getCropCycleMeta(cropName: string): CropCycleMeta {
-  const key = resolveCropKey(cropName);
-  if (key === 'default') return DEFAULT_CYCLE;
-  return CROP_CYCLES[key] ?? DEFAULT_CYCLE;
+  const id = resolveCropToTemplateId(cropName);
+  return TIMELINE_TEMPLATES[id];
 }

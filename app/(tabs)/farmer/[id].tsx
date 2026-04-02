@@ -33,12 +33,14 @@ import {
 
 const getFertilizerRecommendation = (crop: string) => {
   const cropLower = crop.toLowerCase();
+  const cornAdvice = [
+    { name: 'NPK 14-14-14', amount: '200 kg per hectare', timing: 'At planting', note: 'Starter fertilizer for early growth' },
+    { name: 'Urea (46-0-0)', amount: '100 kg per hectare', timing: '40 days after planting', note: 'Top-dressing for grain fill' },
+    { name: 'Organic compost', amount: '5 tons per hectare', timing: '2 weeks before planting', note: 'Improves soil structure' },
+  ];
   const recommendations: Record<string, { name: string; amount: string; timing: string; note: string }[]> = {
-    corn: [
-      { name: 'NPK 14-14-14', amount: '200 kg per hectare', timing: 'At planting', note: 'Starter fertilizer for early growth' },
-      { name: 'Urea (46-0-0)', amount: '100 kg per hectare', timing: '40 days after planting', note: 'Top-dressing for grain fill' },
-      { name: 'Organic compost', amount: '5 tons per hectare', timing: '2 weeks before planting', note: 'Improves soil structure' },
-    ],
+    corn: cornAdvice,
+    maize: cornAdvice,
     eggplant: [
       { name: 'NPK 14-14-14', amount: '150 kg per hectare', timing: 'At transplanting', note: 'Balanced nutrition for fruiting' },
       { name: 'Organic compost', amount: '3 tons per hectare', timing: 'Before planting', note: 'Adds organic matter' },
@@ -78,6 +80,11 @@ const getFertilizerRecommendation = (crop: string) => {
       { name: 'NPK 14-14-14', amount: '200 kg per hectare', timing: 'At planting', note: 'Tuber initiation' },
       { name: 'Organic compost', amount: '5 tons per hectare', timing: '2 weeks before planting', note: 'Soil conditioning' },
       { name: 'Potassium chloride', amount: '80 kg per hectare', timing: 'At tuber bulking', note: 'Yield boost' },
+    ],
+    wheat: [
+      { name: 'NPK 15-15-15', amount: '100 kg per hectare', timing: 'At planting or basal', note: 'Balanced starter for cereals' },
+      { name: 'Urea', amount: '80 kg per hectare', timing: 'Tillering stage', note: 'Nitrogen for tiller development' },
+      { name: 'Urea', amount: '60 kg per hectare', timing: 'Heading / boot', note: 'Top-dress if recommended locally' },
     ],
     default: [
       { name: 'NPK 14-14-14', amount: '50 kg per hectare', timing: 'Use when planting', note: 'Good for plant growth' },
