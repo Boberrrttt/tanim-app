@@ -18,9 +18,15 @@ import {
   Wind,
   Clover,
   BrainCircuit,
+  FlaskConical,
+  Info,
 } from 'lucide-react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { isAbortLikeError } from '@/services/api';
+import {
+  predictFertilizer,
+  type FertilizerPredictData,
+} from '@/services/ml.service';
 import { useFarmDetailData } from '@/hooks/use-farm-detail-data';
 import { fontFamily, fontSize, radius, colors, spacing, shadow } from '@/constants/design-tokens';
 import FarmingTimeline from '@/components/FarmingTimeline';
@@ -30,71 +36,6 @@ import {
   getCycleEndDate,
   getDefaultPlannedPlantingDate,
 } from '@/constants/crop-cycle';
-
-const getFertilizerRecommendation = (crop: string) => {
-  const cropLower = crop.toLowerCase();
-  const cornAdvice = [
-    { name: 'NPK 14-14-14', amount: '200 kg per hectare', timing: 'At planting', note: 'Starter fertilizer for early growth' },
-    { name: 'Urea (46-0-0)', amount: '100 kg per hectare', timing: '40 days after planting', note: 'Top-dressing for grain fill' },
-    { name: 'Organic compost', amount: '5 tons per hectare', timing: '2 weeks before planting', note: 'Improves soil structure' },
-  ];
-  const recommendations: Record<string, { name: string; amount: string; timing: string; note: string }[]> = {
-    corn: cornAdvice,
-    maize: cornAdvice,
-    eggplant: [
-      { name: 'NPK 14-14-14', amount: '150 kg per hectare', timing: 'At transplanting', note: 'Balanced nutrition for fruiting' },
-      { name: 'Organic compost', amount: '3 tons per hectare', timing: 'Before planting', note: 'Adds organic matter' },
-      { name: 'Potassium sulfate', amount: '50 kg per hectare', timing: 'At flowering', note: 'Improves fruit quality' },
-    ],
-    tobacco: [
-      { name: 'NPK 12-12-17', amount: '250 kg per hectare', timing: 'At transplanting', note: 'Tobacco-specific blend' },
-      { name: 'Urea', amount: '50 kg per hectare', timing: '4 weeks after transplanting', note: 'Nitrogen for leaf growth' },
-      { name: 'Potassium chloride', amount: '75 kg per hectare', timing: '6 weeks after transplanting', note: 'Enhances leaf quality' },
-    ],
-    rice: [
-      { name: 'Urea', amount: '90 kg per hectare', timing: 'At transplanting', note: 'Nitrogen for tillering' },
-      { name: 'NPK 14-14-14', amount: '100 kg per hectare', timing: '15 days after transplanting', note: 'Complete nutrition' },
-      { name: 'Ammonium phosphate', amount: '50 kg per hectare', timing: 'At flowering', note: 'Boosts grain yield' },
-    ],
-    tomato: [
-      { name: 'NPK 14-14-14', amount: '150 kg per hectare', timing: 'At transplanting', note: 'Balanced starter' },
-      { name: 'Calcium nitrate', amount: '30 kg per hectare', timing: 'At fruiting', note: 'Prevents blossom end rot' },
-      { name: 'Organic compost', amount: '4 tons per hectare', timing: 'Before planting', note: 'Improves moisture retention' },
-    ],
-    sugarcane: [
-      { name: 'NPK 15-15-15', amount: '300 kg per hectare', timing: 'At planting', note: 'Heavy feeder crop' },
-      { name: 'Urea', amount: '150 kg per hectare', timing: '60 days after planting', note: 'Nitrogen for stalk growth' },
-      { name: 'Potassium chloride', amount: '100 kg per hectare', timing: '90 days after planting', note: 'Sugar accumulation' },
-    ],
-    cabbage: [
-      { name: 'NPK 14-14-14', amount: '120 kg per hectare', timing: 'At transplanting', note: 'Balanced nutrition' },
-      { name: 'Organic compost', amount: '4 tons per hectare', timing: 'Before planting', note: 'Improves soil' },
-      { name: 'Urea', amount: '40 kg per hectare', timing: '3 weeks after transplanting', note: 'Leaf development' },
-    ],
-    cotton: [
-      { name: 'NPK 20-20-0', amount: '150 kg per hectare', timing: 'At planting', note: 'Starter fertilizer' },
-      { name: 'Urea', amount: '100 kg per hectare', timing: '45 days after planting', note: 'Boll development' },
-      { name: 'Potassium sulfate', amount: '60 kg per hectare', timing: 'At flowering', note: 'Fiber quality' },
-    ],
-    potato: [
-      { name: 'NPK 14-14-14', amount: '200 kg per hectare', timing: 'At planting', note: 'Tuber initiation' },
-      { name: 'Organic compost', amount: '5 tons per hectare', timing: '2 weeks before planting', note: 'Soil conditioning' },
-      { name: 'Potassium chloride', amount: '80 kg per hectare', timing: 'At tuber bulking', note: 'Yield boost' },
-    ],
-    wheat: [
-      { name: 'NPK 15-15-15', amount: '100 kg per hectare', timing: 'At planting or basal', note: 'Balanced starter for cereals' },
-      { name: 'Urea', amount: '80 kg per hectare', timing: 'Tillering stage', note: 'Nitrogen for tiller development' },
-      { name: 'Urea', amount: '60 kg per hectare', timing: 'Heading / boot', note: 'Top-dress if recommended locally' },
-    ],
-    default: [
-      { name: 'NPK 14-14-14', amount: '50 kg per hectare', timing: 'Use when planting', note: 'Good for plant growth' },
-      { name: 'Organic compost', amount: '2 tons per hectare', timing: '2 weeks before planting', note: 'Makes soil better' },
-      { name: 'Urea', amount: '25 kg per hectare', timing: '4 weeks after planting', note: 'Adds nitrogen for fruits' },
-    ],
-  };
-  const key = Object.keys(recommendations).find((k) => cropLower.includes(k)) ?? 'default';
-  return recommendations[key];
-};
 
 const kelvinToCelsius = (kelvin: number) => Math.round(kelvin - 273.15);
 
@@ -108,6 +49,25 @@ const getWeatherEmoji = (description: string) => {
   if (desc?.includes('mist') || desc?.includes('fog')) return '🌫️';
   return '☀️';
 };
+
+/** Human-readable label from model class (underscores, casing). */
+function formatFertilizerClassName(raw: string): string {
+  const s = raw.trim();
+  if (!s) return s;
+  return s
+    .replace(/_/g, ' ')
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function primaryFertilizerConfidence(data: FertilizerPredictData): number | null {
+  const match = data.probabilities?.find(
+    (p) => p.fertilizer_class === data.prediction
+  );
+  const p = match?.probability ?? data.probabilities?.[0]?.probability;
+  return typeof p === 'number' && Number.isFinite(p) ? p : null;
+}
 
 const getWeatherRecommendation = (
   description: string,
@@ -186,6 +146,9 @@ export default function FarmDetailsScreen() {
   const id = Array.isArray(idParam) ? idParam[0] : idParam;
   const router = useRouter();
   const [selectedCrop, setSelectedCrop] = useState<string | null>(null);
+  const [fertilizerLoading, setFertilizerLoading] = useState(false);
+  const [fertilizerData, setFertilizerData] = useState<FertilizerPredictData | null>(null);
+  const [fertilizerError, setFertilizerError] = useState<string | null>(null);
 
   const { farm, soilHealth, weather, topCrops, farmsError, isInitialLoading } = useFarmDetailData(id);
 
@@ -194,6 +157,57 @@ export default function FarmDetailsScreen() {
   useEffect(() => {
     setSelectedCrop(null);
   }, [id]);
+
+  useEffect(() => {
+    setFertilizerData(null);
+    setFertilizerError(null);
+    if (!selectedCrop || !soilHealth || !id) {
+      setFertilizerLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+
+    (async () => {
+      setFertilizerLoading(true);
+      setFertilizerError(null);
+      try {
+        const res = await predictFertilizer(
+          {
+            nitrogen: soilHealth.nitrogen,
+            phosphorus: soilHealth.phosphorus,
+            potassium: soilHealth.potassium,
+            ph: soilHealth.ph,
+            temperature: soilHealth.temperature,
+            ec: soilHealth.salinity,
+            moisture: soilHealth.moisture,
+            farm_id: id,
+          },
+          { signal: controller.signal }
+        );
+        if (cancelled) return;
+        if (res.status !== 'success' || !res.data) {
+          setFertilizerData(null);
+          setFertilizerError(res.message ?? 'Fertilizer recommendation failed.');
+          return;
+        }
+        setFertilizerData(res.data);
+      } catch (e: unknown) {
+        if (cancelled || isAbortLikeError(e)) return;
+        const ax = e as { message?: string };
+        setFertilizerData(null);
+        setFertilizerError(ax?.message ?? 'Could not load fertilizer recommendation.');
+      } finally {
+        if (!cancelled) setFertilizerLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [selectedCrop, soilHealth, id]);
 
   useEffect(() => {
     if (!farmsError || isAbortLikeError(farmsError)) return;
@@ -228,7 +242,6 @@ export default function FarmDetailsScreen() {
   }
 
   const hasCropSuggestion = topCrops.length > 0;
-  const fertilizerAdvice = selectedCrop ? getFertilizerRecommendation(selectedCrop) : null;
 
   const cropCycleMeta = selectedCrop ? getCropCycleMeta(selectedCrop) : null;
   const cycleEndDate =
@@ -404,7 +417,8 @@ export default function FarmDetailsScreen() {
             <Text style={styles.sectionTitle}>🌾 Top Crop Suggestions</Text>
           </View>
           <Text style={styles.sectionDescription}>
-            Tap a crop to see fertilizer recommendations.
+            Choose a crop to see a fertilizer-style hint based on your latest soil test (N, P, K, pH,
+            EC, temperature, and moisture).
           </Text>
 
           {hasCropSuggestion ? (
@@ -443,14 +457,19 @@ export default function FarmDetailsScreen() {
           )}
         </View>
 
-        {/* Fertilizer Advice - Generated per selected crop */}
+        {/* Fertilizer — soil-driven model hint for selected crop */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Clover size={26} color={colors.primary} strokeWidth={2} />
             <Text style={styles.sectionTitle}>
-              Fertilizer Advice {selectedCrop ? `for ${selectedCrop}` : ''}
+              Fertilizer suggestions{selectedCrop ? ` · ${selectedCrop}` : ''}
             </Text>
           </View>
+          <Text style={styles.sectionDescription}>
+            The model suggests a fertilizer <Text style={styles.sectionDescriptionEm}>category</Text> from
+            your current soil readings and the crop you selected—not exact bag rates. Use the timeline
+            above for timing; always follow product labels and local extension advice.
+          </Text>
 
           {selectedCrop && cropCycleMeta && cycleStartDate && cycleEndDate ? (
             <View style={styles.timelineWrap}>
@@ -466,27 +485,115 @@ export default function FarmDetailsScreen() {
             </View>
           ) : null}
 
-          {fertilizerAdvice ? (
-            fertilizerAdvice.map((fert) => (
-              <View key={fert.name} style={styles.fertilizerCard}>
-                <View style={styles.fertilizerHeader}>
-                  <Text style={styles.fertilizerName}>{fert.name}</Text>
-                </View>
-                <View style={styles.fertilizerDetails}>
-                  <Text style={styles.fertilizerDetail}>
-                    <Text style={styles.fertilizerLabel}>Amount: </Text>{fert.amount}
-                  </Text>
-                  <Text style={styles.fertilizerDetail}>
-                    <Text style={styles.fertilizerLabel}>When: </Text>{fert.timing}
-                  </Text>
-                </View>
-                <Text style={styles.fertilizerNote}>{fert.note}</Text>
+          {!selectedCrop ? (
+            <View style={styles.fertilizerEmptyCard}>
+              <FlaskConical size={28} color={colors.mutedForeground} strokeWidth={2} />
+              <Text style={styles.fertilizerEmptyTitle}>Select a crop first</Text>
+              <Text style={styles.fertilizerEmptyBody}>
+                Tap one of the top crop suggestions. We’ll pair that choice with your soil test to
+                suggest a fertilizer type.
+              </Text>
+            </View>
+          ) : !soilHealth ? (
+            <View style={styles.fertilizerEmptyCard}>
+              <FlaskConical size={28} color={colors.mutedForeground} strokeWidth={2} />
+              <Text style={styles.fertilizerEmptyTitle}>Soil data needed</Text>
+              <Text style={styles.fertilizerEmptyBody}>
+                Add or update a soil health test for this farm. The model needs N, P, K, pH, salinity,
+                temperature, and moisture to suggest a fertilizer category.
+              </Text>
+            </View>
+          ) : fertilizerLoading ? (
+            <View style={styles.fertilizerLoadingBlock}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <View style={styles.fertilizerLoadingCopy}>
+                <Text style={styles.fertilizerLoadingTitle}>Analyzing your soil…</Text>
+                <Text style={styles.fertilizerLoadingSub}>
+                  Matching {selectedCrop} with your latest readings.
+                </Text>
               </View>
-            ))
+            </View>
+          ) : fertilizerError ? (
+            <View style={styles.fertilizerEmptyCard}>
+              <Info size={28} color={colors.warning} strokeWidth={2} />
+              <Text style={styles.fertilizerEmptyTitle}>Couldn’t load a suggestion</Text>
+              <Text style={styles.fertilizerEmptyBody}>{fertilizerError}</Text>
+              <Text style={styles.fertilizerEmptyHint}>
+                Check your connection and ML service settings, then try selecting the crop again.
+              </Text>
+            </View>
+          ) : fertilizerData ? (
+            <>
+              <View style={styles.fertilizerPredictionHero}>
+                <View style={styles.fertilizerHeroBadge}>
+                  <Text style={styles.fertilizerHeroBadgeText}>Best match</Text>
+                </View>
+                <Text style={styles.fertilizerPredictionValue}>
+                  {formatFertilizerClassName(fertilizerData.prediction)}
+                </Text>
+                {(() => {
+                  const conf = primaryFertilizerConfidence(fertilizerData);
+                  if (conf == null) return null;
+                  return (
+                    <View style={styles.fertilizerConfidencePill}>
+                      <Text style={styles.fertilizerConfidencePillText}>
+                        Model confidence ~{Math.round(conf * 100)}%
+                      </Text>
+                    </View>
+                  );
+                })()}
+                <Text style={styles.fertilizerPredictionHint}>
+                  Suggested category for {selectedCrop} given your soil test—not a prescription for
+                  application rate or timing alone.
+                </Text>
+              </View>
+              {(fertilizerData.probabilities?.length ?? 0) > 0 ? (
+                <>
+                  <Text style={styles.fertilizerSubheading}>Other likely categories</Text>
+                  <Text style={styles.fertilizerSubheadingHint}>
+                    How strongly the model favors each option (top three).
+                  </Text>
+                </>
+              ) : null}
+              {fertilizerData.probabilities?.map((item, index) => {
+                const pct = Math.round(Math.min(1, Math.max(0, item.probability)) * 100);
+                return (
+                  <View
+                    key={`${item.fertilizer_class}-${index}`}
+                    style={styles.fertilizerAltCard}
+                  >
+                    <View style={styles.fertilizerAltTop}>
+                      <View style={styles.fertilizerAltLeft}>
+                        <View style={styles.fertilizerAltRank}>
+                          <Text style={styles.fertilizerAltRankText}>{index + 1}</Text>
+                        </View>
+                        <Text style={styles.fertilizerAltName} numberOfLines={2}>
+                          {formatFertilizerClassName(item.fertilizer_class)}
+                        </Text>
+                      </View>
+                      <Text style={styles.fertilizerAltPct}>{pct}%</Text>
+                    </View>
+                    <View style={styles.fertilizerBarTrack}>
+                      <View style={[styles.fertilizerBarFill, { width: `${pct}%` }]} />
+                    </View>
+                  </View>
+                );
+              })}
+              <View style={styles.fertilizerDisclaimer}>
+                <Info size={16} color={colors.mutedForeground} strokeWidth={2} />
+                <Text style={styles.fertilizerDisclaimerText}>
+                  This is a decision-support hint from machine learning. Confirm soil needs with a lab or
+                  agronomist before buying or applying fertilizer.
+                </Text>
+              </View>
+            </>
           ) : (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>
-                Tap a crop above to see fertilizer recommendations.
+            <View style={styles.fertilizerEmptyCard}>
+              <FlaskConical size={28} color={colors.mutedForeground} strokeWidth={2} />
+              <Text style={styles.fertilizerEmptyTitle}>No result yet</Text>
+              <Text style={styles.fertilizerEmptyBody}>
+                Try tapping your crop again in a moment. If this keeps happening, the model may be
+                temporarily unavailable.
               </Text>
             </View>
           )}
@@ -582,6 +689,10 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.regular,
     color: colors.mutedForeground,
     lineHeight: 22,
+  },
+  sectionDescriptionEm: {
+    fontFamily: fontFamily.semibold,
+    color: colors.foreground,
   },
   healthGrid: {
     gap: spacing.md,
@@ -875,42 +986,202 @@ const styles = StyleSheet.create({
   timelineWrap: {
     marginBottom: spacing.lg,
   },
-  fertilizerCard: {
-    backgroundColor: colors.background,
-    borderRadius: radius.lg,
-    padding: 18,
-    marginBottom: spacing.md,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.primary,
-  },
-  fertilizerHeader: {
+  fertilizerLoadingBlock: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 8,
+    gap: spacing.lg,
+    paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.lg,
+    backgroundColor: colors.background,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  fertilizerName: {
+  fertilizerLoadingCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  fertilizerLoadingTitle: {
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.semibold,
+    color: colors.foreground,
+  },
+  fertilizerLoadingSub: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.regular,
+    color: colors.mutedForeground,
+    lineHeight: 18,
+  },
+  fertilizerEmptyCard: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing['2xl'],
+    paddingHorizontal: spacing.lg,
+    backgroundColor: colors.background,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  fertilizerEmptyTitle: {
     fontSize: fontSize.lg,
     fontFamily: fontFamily.semibold,
     color: colors.foreground,
+    textAlign: 'center',
   },
-  fertilizerDetails: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 6,
-  },
-  fertilizerDetail: {
+  fertilizerEmptyBody: {
     fontSize: fontSize.md,
     fontFamily: fontFamily.regular,
     color: colors.mutedForeground,
+    textAlign: 'center',
+    lineHeight: 22,
+    maxWidth: 320,
+    alignSelf: 'center',
   },
-  fertilizerLabel: {
-    fontFamily: fontFamily.semibold,
+  fertilizerEmptyHint: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.regular,
+    color: colors.mutedForeground,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginTop: spacing.xs,
+    maxWidth: 300,
+    alignSelf: 'center',
+    opacity: 0.9,
+  },
+  fertilizerPredictionHero: {
+    backgroundColor: colors.primaryAlpha10,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
+    gap: spacing.md,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  fertilizerHeroBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+    borderRadius: radius.full,
+  },
+  fertilizerHeroBadgeText: {
+    fontSize: fontSize.xs,
+    fontFamily: fontFamily.bold,
+    color: colors.primaryForeground,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  fertilizerPredictionValue: {
+    fontSize: fontSize['2xl'],
+    fontFamily: fontFamily.bold,
+    color: colors.greenDark,
+    letterSpacing: -0.3,
+  },
+  fertilizerConfidencePill: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.card,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  fertilizerConfidencePillText: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.medium,
     color: colors.foreground,
   },
-  fertilizerNote: {
-    fontSize: fontSize.sm + 1,
+  fertilizerPredictionHint: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.regular,
+    color: colors.mutedForeground,
+    lineHeight: 20,
+  },
+  fertilizerSubheading: {
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.semibold,
+    color: colors.foreground,
+    marginTop: spacing.md,
+    marginBottom: 2,
+  },
+  fertilizerSubheadingHint: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.regular,
+    color: colors.mutedForeground,
+    lineHeight: 18,
+    marginBottom: spacing.sm,
+  },
+  fertilizerAltCard: {
+    backgroundColor: colors.background,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.sm,
+  },
+  fertilizerAltTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  fertilizerAltLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    flex: 1,
+  },
+  fertilizerAltRank: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.primaryAlpha10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fertilizerAltRankText: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.bold,
+    color: colors.primary,
+  },
+  fertilizerAltName: {
+    flex: 1,
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.semibold,
+    color: colors.foreground,
+    lineHeight: 22,
+  },
+  fertilizerAltPct: {
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.bold,
+    color: colors.greenDark,
+  },
+  fertilizerBarTrack: {
+    height: 8,
+    backgroundColor: colors.muted,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  fertilizerBarFill: {
+    height: '100%',
+    backgroundColor: colors.primary,
+    borderRadius: 4,
+  },
+  fertilizerDisclaimer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    padding: spacing.lg,
+    backgroundColor: colors.background,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  fertilizerDisclaimerText: {
+    flex: 1,
+    fontSize: fontSize.sm,
     fontFamily: fontFamily.regular,
     color: colors.mutedForeground,
     lineHeight: 20,

@@ -115,7 +115,12 @@ export function useFarmDetailData(farmId: string | undefined) {
         s.temperature,
         s.moisture,
       ];
-      return predict(features, farmId!);
+      return predict(
+        features,
+        farmId!,
+        hasCoords ? lat! : undefined,
+        hasCoords ? lon! : undefined
+      );
     },
     { ...sharedSwrOptions, dedupingInterval: 60_000 }
   );
