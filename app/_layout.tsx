@@ -15,6 +15,7 @@ import { SWRConfig } from 'swr';
 import 'react-native-reanimated';
 
 import { colors } from '@/constants/design-tokens';
+import { AppDialogProvider } from '@/contexts/app-dialog-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 SplashScreen.preventAutoHideAsync();
@@ -57,13 +58,15 @@ export default function RootLayout() {
         dedupingInterval: 3000,
       }}
     >
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="login" options={{ animation: 'default' }} />
-          <Stack.Screen name="(tabs)" options={{ animation: 'none' }} />
-        </Stack>
-        <StatusBar style="dark" />
-      </ThemeProvider>
+      <AppDialogProvider>
+        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="login" options={{ animation: 'default' }} />
+            <Stack.Screen name="(tabs)" options={{ animation: 'none' }} />
+          </Stack>
+          <StatusBar style="dark" />
+        </ThemeProvider>
+      </AppDialogProvider>
     </SWRConfig>
   );
 }

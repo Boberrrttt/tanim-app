@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  Alert,
   ActivityIndicator,
   TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { mutate } from 'swr';
 import {
   ArrowLeft,
   ChartLine,
@@ -20,6 +20,9 @@ import {
   BrainCircuit,
   FlaskConical,
   Info,
+  Play,
+  Sprout,
+  Ban,
 } from 'lucide-react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { isAbortLikeError } from '@/services/api';
@@ -28,14 +31,12 @@ import {
   type FertilizerPredictData,
 } from '@/services/ml.service';
 import { useFarmDetailData } from '@/hooks/use-farm-detail-data';
+import { swrKeys } from '@/constants/swr-keys';
+import { cancelFarmingSession, startFarmingSession } from '@/services/farming-session.service';
+import { useAppDialog } from '@/contexts/app-dialog-context';
 import { fontFamily, fontSize, radius, colors, spacing, shadow } from '@/constants/design-tokens';
 import FarmingTimeline from '@/components/FarmingTimeline';
-import {
-  getCropCycleMeta,
-  getCurrentCycleDay,
-  getCycleEndDate,
-  getDefaultPlannedPlantingDate,
-} from '@/constants/crop-cycle';
+import { getCurrentCycleDay, getCycleEndDate } from '@/constants/crop-cycle';
 
 const kelvinToCelsius = (kelvin: number) => Math.round(kelvin - 273.15);
 
@@ -50,23 +51,26 @@ const getWeatherEmoji = (description: string) => {
   return '☀️';
 };
 
-/** Human-readable label from model class (underscores, casing). */
-function formatFertilizerClassName(raw: string): string {
-  const s = raw.trim();
-  if (!s) return s;
-  return s
-    .replace(/_/g, ' ')
-    .split(/\s+/)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(' ');
+function formatBagsPerHa(bags: number): string {
+  const n = Number(bags);
+  if (!Number.isFinite(n)) return '—';
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }
 
-function primaryFertilizerConfidence(data: FertilizerPredictData): number | null {
-  const match = data.probabilities?.find(
-    (p) => p.fertilizer_class === data.prediction
-  );
-  const p = match?.probability ?? data.probabilities?.[0]?.probability;
-  return typeof p === 'number' && Number.isFinite(p) ? p : null;
+/** First 10 chars of an ISO instant → YYYY-MM-DD for ML `cycle_start_date`. */
+function isoTimestampToYmd(iso: string): string | null {
+  const d = iso.trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+}
+
+function parseYmdLocal(ymd: string): Date | null {
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const day = Number(m[3]);
+  const dt = new Date(y, mo, day, 0, 0, 0, 0);
+  return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
 const getWeatherRecommendation = (
@@ -145,12 +149,32 @@ export default function FarmDetailsScreen() {
   const { id: idParam } = useLocalSearchParams<{ id: string | string[] }>();
   const id = Array.isArray(idParam) ? idParam[0] : idParam;
   const router = useRouter();
+  const { showDialog } = useAppDialog();
   const [selectedCrop, setSelectedCrop] = useState<string | null>(null);
   const [fertilizerLoading, setFertilizerLoading] = useState(false);
   const [fertilizerData, setFertilizerData] = useState<FertilizerPredictData | null>(null);
   const [fertilizerError, setFertilizerError] = useState<string | null>(null);
+  const [startFarmingSaving, setStartFarmingSaving] = useState(false);
+  const [cancelFarmingSaving, setCancelFarmingSaving] = useState(false);
 
-  const { farm, soilHealth, weather, topCrops, farmsError, isInitialLoading } = useFarmDetailData(id);
+  const {
+    farmerId,
+    farm,
+    soilHealthForDisplay,
+    soilHealthFromPending,
+    soilHealthFromFarmingSession,
+    farmingSessionActive,
+    pinnedFertilizerData,
+    pinnedSelectedCrop,
+    farmingStartedAt,
+    pendingSoilReceivedAt,
+    pendingSoilFeatures,
+    weather,
+    topCrops,
+    farmsError,
+    isInitialLoading,
+    mutate: farmDetailMutate,
+  } = useFarmDetailData(id);
 
   const todayIs = `Today: ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`;
 
@@ -159,9 +183,20 @@ export default function FarmDetailsScreen() {
   }, [id]);
 
   useEffect(() => {
-    setFertilizerData(null);
+    if (!farmingSessionActive || !pinnedSelectedCrop) return;
+    setSelectedCrop(pinnedSelectedCrop);
+  }, [id, farmingSessionActive, pinnedSelectedCrop]);
+
+  useEffect(() => {
     setFertilizerError(null);
-    if (!selectedCrop || !soilHealth || !id) {
+    if (farmingSessionActive && pinnedFertilizerData) {
+      setFertilizerData(pinnedFertilizerData);
+      setFertilizerLoading(false);
+      return;
+    }
+
+    setFertilizerData(null);
+    if (!selectedCrop || !soilHealthForDisplay || !id || farmingSessionActive) {
       setFertilizerLoading(false);
       return;
     }
@@ -173,16 +208,19 @@ export default function FarmDetailsScreen() {
       setFertilizerLoading(true);
       setFertilizerError(null);
       try {
+        const cycleYmd =
+          pendingSoilReceivedAt != null
+            ? isoTimestampToYmd(pendingSoilReceivedAt)
+            : null;
         const res = await predictFertilizer(
           {
-            nitrogen: soilHealth.nitrogen,
-            phosphorus: soilHealth.phosphorus,
-            potassium: soilHealth.potassium,
-            ph: soilHealth.ph,
-            temperature: soilHealth.temperature,
-            ec: soilHealth.salinity,
-            moisture: soilHealth.moisture,
+            nitrogen: soilHealthForDisplay.nitrogen,
+            phosphorus: soilHealthForDisplay.phosphorus,
+            potassium: soilHealthForDisplay.potassium,
+            ph: soilHealthForDisplay.ph,
+            crop: selectedCrop,
             farm_id: id,
+            ...(cycleYmd ? { cycle_start_date: cycleYmd } : {}),
           },
           { signal: controller.signal }
         );
@@ -207,18 +245,198 @@ export default function FarmDetailsScreen() {
       cancelled = true;
       controller.abort();
     };
-  }, [selectedCrop, soilHealth, id]);
+  }, [
+    farmingSessionActive,
+    pinnedFertilizerData,
+    selectedCrop,
+    soilHealthForDisplay,
+    id,
+    pendingSoilReceivedAt,
+  ]);
+
+  const onStartFarming = useCallback(async () => {
+    if (
+      !id ||
+      !farmerId ||
+      !selectedCrop ||
+      !soilHealthForDisplay ||
+      !fertilizerData ||
+      farmingSessionActive
+    ) {
+      return;
+    }
+    setStartFarmingSaving(true);
+    try {
+      const cycleYmd =
+        isoTimestampToYmd(pendingSoilReceivedAt ?? '') ??
+        fertilizerData.farming_timeline?.cycle_start_date ??
+        undefined;
+      const lat =
+        farm?.latitude != null && Number.isFinite(farm.latitude) ? farm.latitude : undefined;
+      const lon =
+        farm?.longitude != null && Number.isFinite(farm.longitude) ? farm.longitude : undefined;
+      const wLat =
+        weather?.latitude != null && Number.isFinite(weather.latitude)
+          ? weather.latitude
+          : undefined;
+      const wLon =
+        weather?.longitude != null && Number.isFinite(weather.longitude)
+          ? weather.longitude
+          : undefined;
+      const res = await startFarmingSession({
+        farm_id: id,
+        farmer_id: farmerId,
+        selected_crop: selectedCrop,
+        soil_snapshot: {
+          nitrogen: soilHealthForDisplay.nitrogen,
+          phosphorus: soilHealthForDisplay.phosphorus,
+          potassium: soilHealthForDisplay.potassium,
+          ph: soilHealthForDisplay.ph,
+          salinity: soilHealthForDisplay.salinity,
+          temperature: soilHealthForDisplay.temperature,
+          moisture: soilHealthForDisplay.moisture,
+          received_at: pendingSoilReceivedAt ?? undefined,
+        },
+        fertilizer_recommendation: fertilizerData,
+        top_crop_probabilities: topCrops,
+        cycle_start_date: cycleYmd,
+        ...(lat != null && lon != null
+          ? { latitude: lat, longitude: lon }
+          : wLat != null && wLon != null
+            ? { latitude: wLat, longitude: wLon }
+            : {}),
+        ...(pendingSoilFeatures && pendingSoilFeatures.length >= 6
+          ? { features: pendingSoilFeatures }
+          : {}),
+      });
+      if (res.status !== 'success' || !res.data) {
+        showDialog({
+          title: 'Could not start farming',
+          message:
+            typeof res.message === 'string' ? res.message : 'Please try again.',
+          variant: 'error',
+        });
+        return;
+      }
+      await farmDetailMutate.farmingSession();
+      await mutate(swrKeys.farmingSessionsByFarmer(farmerId));
+      await farmDetailMutate.farms();
+      showDialog({
+        title: 'Farming started',
+        message:
+          'Soil, crop, and fertilizer plan are saved on the server. This farm will keep using this snapshot.',
+        variant: 'success',
+      });
+    } catch (e: unknown) {
+      const ax = e as {
+        response?: { data?: { message?: string; detail?: { message?: string } } };
+        message?: string;
+      };
+      const d = ax?.response?.data;
+      const msg =
+        d?.message ??
+        d?.detail?.message ??
+        ax?.message ??
+        'Network or server error.';
+      showDialog({
+        title: 'Could not start farming',
+        message: msg,
+        variant: 'error',
+      });
+    } finally {
+      setStartFarmingSaving(false);
+    }
+  }, [
+    id,
+    farmerId,
+    selectedCrop,
+    soilHealthForDisplay,
+    fertilizerData,
+    farmingSessionActive,
+    pendingSoilReceivedAt,
+    pendingSoilFeatures,
+    topCrops,
+    farmDetailMutate,
+    farm,
+    weather,
+    showDialog,
+  ]);
+
+  const onCancelFarming = useCallback(() => {
+    if (!id || !farmerId || !farmingSessionActive) return;
+    showDialog({
+      title: 'End farming?',
+      message:
+        'This removes the saved soil snapshot and crop plan for this farm on the server. You can start farming again later with a new reading.',
+      variant: 'warning',
+      buttons: [
+        { label: 'Keep farming', variant: 'ghost', onPress: (d) => d() },
+        {
+          label: 'End farming',
+          variant: 'destructive',
+          onPress: (d) => {
+            d();
+            void (async () => {
+              setCancelFarmingSaving(true);
+              try {
+                const res = await cancelFarmingSession(id, farmerId);
+                if (res.status !== 'success') {
+                  showDialog({
+                    title: 'Could not end farming',
+                    message:
+                      typeof res.message === 'string'
+                        ? res.message
+                        : 'Please try again.',
+                    variant: 'error',
+                  });
+                  return;
+                }
+                await farmDetailMutate.farmingSession();
+                await mutate(swrKeys.farmingSessionsByFarmer(farmerId));
+                await farmDetailMutate.pendingSoil();
+                setSelectedCrop(null);
+                showDialog({
+                  title: 'Farming ended',
+                  message: res.data?.removed
+                    ? 'This farm will use live ML readings again when available.'
+                    : 'No active session was stored for this farm.',
+                  variant: 'success',
+                });
+              } catch (e: unknown) {
+                const ax = e as {
+                  response?: { data?: { message?: string; detail?: { message?: string } } };
+                  message?: string;
+                };
+                const dat = ax?.response?.data;
+                const msg =
+                  dat?.message ??
+                  dat?.detail?.message ??
+                  ax?.message ??
+                  'Network or server error.';
+                showDialog({
+                  title: 'Could not end farming',
+                  message: msg,
+                  variant: 'error',
+                });
+              } finally {
+                setCancelFarmingSaving(false);
+              }
+            })();
+          },
+        },
+      ],
+    });
+  }, [id, farmerId, farmingSessionActive, farmDetailMutate, showDialog]);
 
   useEffect(() => {
     if (!farmsError || isAbortLikeError(farmsError)) return;
     console.error('Error loading farm details:', farmsError);
-    Alert.alert('Error', 'Could not load farm details. Please try again.');
-  }, [farmsError]);
-
-  const cycleStartDate = useMemo(() => {
-    if (!selectedCrop) return null;
-    return getDefaultPlannedPlantingDate();
-  }, [selectedCrop]);
+    showDialog({
+      title: 'Could not load farm',
+      message: 'Farm details could not be loaded. Check your connection and try again.',
+      variant: 'error',
+    });
+  }, [farmsError, showDialog]);
 
   if (!id || isInitialLoading) {
     return (
@@ -243,15 +461,13 @@ export default function FarmDetailsScreen() {
 
   const hasCropSuggestion = topCrops.length > 0;
 
-  const cropCycleMeta = selectedCrop ? getCropCycleMeta(selectedCrop) : null;
-  const cycleEndDate =
-    cycleStartDate && cropCycleMeta
-      ? getCycleEndDate(cycleStartDate, cropCycleMeta.totalDays)
-      : null;
-  const cycleDay =
-    cycleStartDate && cropCycleMeta
-      ? getCurrentCycleDay(cycleStartDate, cropCycleMeta.totalDays)
-      : 0;
+  const canStartFarming =
+    !!selectedCrop &&
+    !!soilHealthForDisplay &&
+    !!fertilizerData &&
+    !fertilizerLoading &&
+    !fertilizerError &&
+    !farmingSessionActive;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -275,6 +491,52 @@ export default function FarmDetailsScreen() {
           </View>
         </View>
 
+        {farmingSessionActive && farmingStartedAt ? (
+          <View style={styles.pinnedFarmBanner}>
+            <Sprout size={20} color={colors.primary} strokeWidth={2} />
+            <View style={styles.pinnedFarmBannerText}>
+              <Text style={styles.pinnedFarmBannerTitle}>Farming in progress</Text>
+              <Text style={styles.pinnedFarmBannerBody}>
+                This farm uses your saved soil, crop, and fertilizer plan from{' '}
+                {new Date(farmingStartedAt).toLocaleString()}. ML pending soil is not polled for this
+                farm anymore.
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
+        {farmingSessionActive && farmerId ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ban size={26} color={colors.destructive} strokeWidth={2} />
+              <Text style={styles.sectionTitle}>Cancel farming</Text>
+            </View>
+            <Text style={styles.sectionDescription}>
+              End the saved session for this farm. ML pending soil will be used again for readings when
+              available.
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.cancelFarmingButton,
+                cancelFarmingSaving && styles.cancelFarmingButtonDisabled,
+              ]}
+              disabled={cancelFarmingSaving}
+              onPress={onCancelFarming}
+              activeOpacity={0.85}
+              accessibilityLabel="End farming for this farm"
+            >
+              {cancelFarmingSaving ? (
+                <ActivityIndicator color={colors.destructive} />
+              ) : (
+                <>
+                  <Ban size={20} color={colors.destructive} strokeWidth={2.2} />
+                  <Text style={styles.cancelFarmingButtonText}>End farming for this farm</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         {/* Soil Health */}
         <View style={styles.section}>
             <View style={styles.sectionHeader}>
@@ -282,62 +544,85 @@ export default function FarmDetailsScreen() {
               <Text style={styles.sectionTitle}>🧪 Soil Health</Text>
           </View>
 
-          {soilHealth ? (
+          {soilHealthFromFarmingSession ? (
+            <Text style={styles.soilPendingNote}>
+              Values from your saved farming session (tanim-api). They match the soil snapshot taken when
+              you pressed Start farming — not live ML pending readings.
+            </Text>
+          ) : null}
+          {soilHealthFromPending ? (
+            <Text style={styles.soilPendingNote}>
+              Values from your ML service (GET /pending/soil): global latest reading from /predict, not
+              tanim-api. Open farm uses this for cards and fertilizer; N, P, K, salinity, pH, moisture,
+              temperature match the model feature vector.
+            </Text>
+          ) : null}
+
+          {soilHealthForDisplay ? (
             <>
               <View style={styles.healthGrid}>
                 <HealthCard
                   element="Nitrogen"
                   symbol="𝐍"
-                  percent={soilHealth.nitrogen}
+                  percent={soilHealthForDisplay.nitrogen}
                   status="Good"
-                  actualValue={soilHealth.nitrogen?.toString() ?? '0'}
+                  actualValue={soilHealthForDisplay.nitrogen?.toString() ?? '0'}
                   unit="mg/kg"
                   maxValue="100"
                 />
                 <HealthCard
                   element="Phosphorus"
                   symbol="𝐏"
-                  percent={soilHealth.phosphorus}
+                  percent={soilHealthForDisplay.phosphorus}
                   status="Good"
-                  actualValue={soilHealth.phosphorus?.toString() ?? '0'}
+                  actualValue={soilHealthForDisplay.phosphorus?.toString() ?? '0'}
                   unit="mg/kg"
                   maxValue="100"
                 />
                 <HealthCard
                   element="Potassium"
                   symbol="𝐊"
-                  percent={soilHealth.potassium}
+                  percent={soilHealthForDisplay.potassium}
                   status="Good"
-                  actualValue={soilHealth.potassium?.toString() ?? '0'}
+                  actualValue={soilHealthForDisplay.potassium?.toString() ?? '0'}
                   unit="mg/kg"
                   maxValue="100"
                 />
                 <HealthCard
                   element="Salinity"
                   symbol="🧂"
-                  percent={soilHealth.salinity * 15}
+                  percent={soilHealthForDisplay.salinity * 15}
                   status="Low"
-                  actualValue={soilHealth.salinity?.toString() ?? '0'}
+                  actualValue={soilHealthForDisplay.salinity?.toString() ?? '0'}
                   unit=" dS/m"
                   maxValue="6.5"
                 />
                 <HealthCard
                   element="pH"
                   symbol="🧪"
-                  percent={soilHealth.ph * 10}
+                  percent={soilHealthForDisplay.ph * 10}
                   status="Good"
-                  actualValue={soilHealth.ph?.toString() ?? '0'}
+                  actualValue={soilHealthForDisplay.ph?.toString() ?? '0'}
                   unit=" pH"
                   maxValue="10"
                 />
                 <HealthCard
                   element="Moisture"
                   symbol="💧"
-                  percent={soilHealth.moisture}
+                  percent={soilHealthForDisplay.moisture}
                   status="Good"
-                  actualValue={soilHealth.moisture?.toString() ?? '0'}
+                  actualValue={soilHealthForDisplay.moisture?.toString() ?? '0'}
                   unit="%"
                   maxValue="100"
+                />
+                <HealthCard
+                  element="Temperature"
+                  symbol="🌡️"
+                  percent={Math.min(100, Math.max(0, soilHealthForDisplay.temperature * 2))}
+                  status="Good"
+                  actualValue={soilHealthForDisplay.temperature?.toString() ?? '0'}
+                  unit=" °C"
+                  maxValue="50"
                 />
               </View>
               <View style={styles.summaryBox}>
@@ -417,8 +702,8 @@ export default function FarmDetailsScreen() {
             <Text style={styles.sectionTitle}>🌾 Top Crop Suggestions</Text>
           </View>
           <Text style={styles.sectionDescription}>
-            Choose a crop to see a fertilizer-style hint based on your latest soil test (N, P, K, pH,
-            EC, temperature, and moisture).
+            Choose a crop to get N–P₂O₅–K₂O rates and commercial fertilizer options from your latest soil
+            test (N, P, K, pH) and the selected crop.
           </Text>
 
           {hasCropSuggestion ? (
@@ -430,9 +715,14 @@ export default function FarmDetailsScreen() {
                   style={[
                     styles.cropSuggestionCard,
                     isSelected && styles.cropSuggestionCardSelected,
+                    farmingSessionActive && styles.cropSuggestionCardDisabled,
                   ]}
-                  onPress={() => setSelectedCrop(crop.crop_class)}
-                  activeOpacity={0.7}
+                  onPress={() => {
+                    if (farmingSessionActive) return;
+                    setSelectedCrop(crop.crop_class);
+                  }}
+                  activeOpacity={farmingSessionActive ? 1 : 0.7}
+                  disabled={farmingSessionActive}
                 >
                   <View style={styles.cropSuggestionLeft}>
                     <View style={[styles.cropRankBadge, isSelected && styles.cropRankBadgeSelected]}>
@@ -466,41 +756,28 @@ export default function FarmDetailsScreen() {
             </Text>
           </View>
           <Text style={styles.sectionDescription}>
-            The model suggests a fertilizer <Text style={styles.sectionDescriptionEm}>category</Text> from
-            your current soil readings and the crop you selected—not exact bag rates. Use the timeline
-            above for timing; always follow product labels and local extension advice.
+            Recommendations use BSWM-style rules: your readings are classified (Low / Medium / High), then
+            matched to this crop’s rate table. The crop calendar appears after the model responds; phase
+            lengths and labels come from that response. Always follow product labels and local extension
+            advice.
           </Text>
-
-          {selectedCrop && cropCycleMeta && cycleStartDate && cycleEndDate ? (
-            <View style={styles.timelineWrap}>
-              <FarmingTimeline
-                cropName={selectedCrop}
-                cycleStartDate={cycleStartDate}
-                cycleEndDate={cycleEndDate}
-                totalDays={cropCycleMeta.totalDays}
-                currentDay={cycleDay}
-                phases={cropCycleMeta.phases}
-                plantingWindowNote={cropCycleMeta.plantingWindowNote}
-              />
-            </View>
-          ) : null}
 
           {!selectedCrop ? (
             <View style={styles.fertilizerEmptyCard}>
               <FlaskConical size={28} color={colors.mutedForeground} strokeWidth={2} />
               <Text style={styles.fertilizerEmptyTitle}>Select a crop first</Text>
               <Text style={styles.fertilizerEmptyBody}>
-                Tap one of the top crop suggestions. We’ll pair that choice with your soil test to
-                suggest a fertilizer type.
+                Tap one of the top crop suggestions. We’ll send your soil N, P, K, pH and that crop to the
+                ML service for a full recommendation.
               </Text>
             </View>
-          ) : !soilHealth ? (
+          ) : !soilHealthForDisplay ? (
             <View style={styles.fertilizerEmptyCard}>
               <FlaskConical size={28} color={colors.mutedForeground} strokeWidth={2} />
               <Text style={styles.fertilizerEmptyTitle}>Soil data needed</Text>
               <Text style={styles.fertilizerEmptyBody}>
-                Add or update a soil health test for this farm. The model needs N, P, K, pH, salinity,
-                temperature, and moisture to suggest a fertilizer category.
+                Add or update a soil health test for this farm. N, P, K, and pH from your latest reading are
+                required for fertilizer rates.
               </Text>
             </View>
           ) : fertilizerLoading ? (
@@ -524,66 +801,141 @@ export default function FarmDetailsScreen() {
             </View>
           ) : fertilizerData ? (
             <>
-              <View style={styles.fertilizerPredictionHero}>
-                <View style={styles.fertilizerHeroBadge}>
-                  <Text style={styles.fertilizerHeroBadgeText}>Best match</Text>
-                </View>
-                <Text style={styles.fertilizerPredictionValue}>
-                  {formatFertilizerClassName(fertilizerData.prediction)}
-                </Text>
-                {(() => {
-                  const conf = primaryFertilizerConfidence(fertilizerData);
-                  if (conf == null) return null;
+              {(() => {
+                const ft = fertilizerData.farming_timeline;
+                if (!ft?.phases?.length || !ft.total_days) return null;
+                const ymd = ft.cycle_start_date;
+                if (!ymd) {
                   return (
-                    <View style={styles.fertilizerConfidencePill}>
-                      <Text style={styles.fertilizerConfidencePillText}>
-                        Model confidence ~{Math.round(conf * 100)}%
+                    <View style={[styles.fertilizerEmptyCard, styles.fertTimelineMissingCard]}>
+                      <Info size={28} color={colors.mutedForeground} strokeWidth={2} />
+                      <Text style={styles.fertilizerEmptyTitle}>Calendar needs a reading date</Text>
+                      <Text style={styles.fertilizerEmptyBody}>
+                        The fertilizer response did not include cycle_start_date. This is sent when your ML
+                        pending soil snapshot has a valid received_at timestamp.
                       </Text>
                     </View>
                   );
-                })()}
-                <Text style={styles.fertilizerPredictionHint}>
-                  Suggested category for {selectedCrop} given your soil test—not a prescription for
-                  application rate or timing alone.
-                </Text>
-              </View>
-              {(fertilizerData.probabilities?.length ?? 0) > 0 ? (
-                <>
-                  <Text style={styles.fertilizerSubheading}>Other likely categories</Text>
-                  <Text style={styles.fertilizerSubheadingHint}>
-                    How strongly the model favors each option (top three).
-                  </Text>
-                </>
-              ) : null}
-              {fertilizerData.probabilities?.map((item, index) => {
-                const pct = Math.round(Math.min(1, Math.max(0, item.probability)) * 100);
+                }
+                const cycleStart = parseYmdLocal(ymd);
+                if (!cycleStart) return null;
+                const cycleEnd = getCycleEndDate(cycleStart, ft.total_days);
+                const day = getCurrentCycleDay(cycleStart, ft.total_days);
+                const phases = ft.phases.map((p) => ({
+                  name: p.name,
+                  dayStart: p.day_start,
+                  dayEnd: p.day_end,
+                  description: p.description,
+                }));
                 return (
-                  <View
-                    key={`${item.fertilizer_class}-${index}`}
-                    style={styles.fertilizerAltCard}
-                  >
-                    <View style={styles.fertilizerAltTop}>
-                      <View style={styles.fertilizerAltLeft}>
-                        <View style={styles.fertilizerAltRank}>
-                          <Text style={styles.fertilizerAltRankText}>{index + 1}</Text>
-                        </View>
-                        <Text style={styles.fertilizerAltName} numberOfLines={2}>
-                          {formatFertilizerClassName(item.fertilizer_class)}
-                        </Text>
-                      </View>
-                      <Text style={styles.fertilizerAltPct}>{pct}%</Text>
-                    </View>
-                    <View style={styles.fertilizerBarTrack}>
-                      <View style={[styles.fertilizerBarFill, { width: `${pct}%` }]} />
-                    </View>
+                  <View style={styles.timelineWrap}>
+                    <FarmingTimeline
+                      cropName={fertilizerData.crop}
+                      cycleStartDate={cycleStart}
+                      cycleEndDate={cycleEnd}
+                      totalDays={ft.total_days}
+                      currentDay={day}
+                      phases={phases}
+                      plantingWindowNote={ft.planting_window_note}
+                      timelineFootnote={`Template ${ft.template_id} from your fertilizer recommendation. Day 1 = ${ymd} (soil reading date, echoed as cycle_start_date). Swipe the calendar to browse months.`}
+                    />
                   </View>
                 );
-              })}
+              })()}
+              <View style={styles.fertSummaryCard}>
+                <Text style={styles.fertSummaryTitle}>Summary</Text>
+                <View style={styles.fertRow}>
+                  <Text style={styles.fertRowLabel}>Crop</Text>
+                  <Text style={styles.fertRowValue}>{fertilizerData.crop}</Text>
+                </View>
+                <View style={styles.fertRow}>
+                  <Text style={styles.fertRowLabel}>Soil pH</Text>
+                  <Text style={styles.fertRowValue}>{fertilizerData.soil_ph}</Text>
+                </View>
+              </View>
+
+              <Text style={styles.fertSectionHeading}>Soil nutrient levels</Text>
+              <Text style={styles.fertSectionHint}>
+                Classified from your N, P, and K readings (Low / Medium / High).
+              </Text>
+              <View style={styles.fertNpkRow}>
+                {(
+                  [
+                    { key: 'nitrogen' as const, symbol: 'N' },
+                    { key: 'phosphorus' as const, symbol: 'P' },
+                    { key: 'potassium' as const, symbol: 'K' },
+                  ] as const
+                ).map(({ key, symbol }) => {
+                  const status = fertilizerData[key];
+                  const badge = healthStatusBadge(status);
+                  return (
+                    <View key={key} style={styles.fertNpkPill}>
+                      <Text style={styles.fertNpkSymbol}>{symbol}</Text>
+                      <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
+                        <Text style={[styles.statusText, { color: badge.fg }]}>{status}</Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+
+              <View style={styles.fertSummaryCard}>
+                <View style={styles.fertRow}>
+                  <Text style={styles.fertRowLabel}>Recommended N–P₂O₅–K₂O (kg/ha)</Text>
+                  <Text style={styles.fertRowValueEm}>
+                    {fertilizerData.fertilizer_recommendation_rate}
+                  </Text>
+                </View>
+                <View style={styles.fertRow}>
+                  <Text style={styles.fertRowLabel}>Organic fertilizer</Text>
+                  <Text style={styles.fertRowValue}>{fertilizerData.organic_fertilizer}</Text>
+                </View>
+              </View>
+
+              {(['option_1', 'option_2'] as const).map((optKey, idx) => (
+                <View key={optKey} style={styles.fertOptionCard}>
+                  <Text style={styles.fertOptionTitle}>Option {idx + 1}</Text>
+                  {(['first_application', 'second_application'] as const).map((phase) => (
+                    <View key={phase} style={styles.fertPhaseBlock}>
+                      <Text style={styles.fertPhaseTitle}>
+                        {phase === 'first_application' ? 'First application' : 'Second application'}
+                      </Text>
+                      {(fertilizerData[optKey][phase] ?? []).map((row, i) => (
+                        <View key={`${optKey}-${phase}-${i}`} style={styles.fertLineRow}>
+                          <Text style={styles.fertLineFert} numberOfLines={3}>
+                            {row.fertilizer}
+                          </Text>
+                          <Text style={styles.fertLineBags}>
+                            {formatBagsPerHa(row.bags_per_ha)} bags/ha
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  ))}
+                </View>
+              ))}
+
+              <View style={styles.fertOptionCard}>
+                <Text style={styles.fertOptionTitle}>Mode of application</Text>
+                <Text style={styles.fertModePhase}>First application</Text>
+                <Text style={styles.fertModeBody}>
+                  {fertilizerData.mode_of_application.first_application}
+                </Text>
+                <Text style={styles.fertModePhase}>Second application</Text>
+                <Text style={styles.fertModeBody}>
+                  {fertilizerData.mode_of_application.second_application}
+                </Text>
+                <Text style={styles.fertModePhase}>Organic fertilizer</Text>
+                <Text style={styles.fertModeBody}>
+                  {fertilizerData.mode_of_application.organic_fertilizer}
+                </Text>
+              </View>
+
               <View style={styles.fertilizerDisclaimer}>
                 <Info size={16} color={colors.mutedForeground} strokeWidth={2} />
                 <Text style={styles.fertilizerDisclaimerText}>
-                  This is a decision-support hint from machine learning. Confirm soil needs with a lab or
-                  agronomist before buying or applying fertilizer.
+                  Decision support only. Confirm soil needs with a lab or agronomist before buying or
+                  applying fertilizer.
                 </Text>
               </View>
             </>
@@ -598,6 +950,44 @@ export default function FarmDetailsScreen() {
             </View>
           )}
         </View>
+
+        {!farmingSessionActive ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Play size={26} color={colors.primary} strokeWidth={2} />
+              <Text style={styles.sectionTitle}>Start farming</Text>
+            </View>
+            <Text style={styles.sectionDescription}>
+              Save your current soil readings, selected crop, and fertilizer recommendation to the Tanim API.
+              After that, this farm no longer loads ML `/pending/soil` and keeps using this snapshot.
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.startFarmingButton,
+                (!canStartFarming || startFarmingSaving || !farmerId) && styles.startFarmingButtonDisabled,
+              ]}
+              disabled={!canStartFarming || startFarmingSaving || !farmerId}
+              onPress={onStartFarming}
+              activeOpacity={0.85}
+            >
+              {startFarmingSaving ? (
+                <ActivityIndicator color={colors.primaryForeground} />
+              ) : (
+                <>
+                  <Play size={20} color={colors.primaryForeground} strokeWidth={2.2} />
+                  <Text style={styles.startFarmingButtonText}>Save plan & start farming</Text>
+                </>
+              )}
+            </TouchableOpacity>
+            {!farmerId ? (
+              <Text style={styles.startFarmingHint}>Farmer account required to save to the server.</Text>
+            ) : !canStartFarming ? (
+              <Text style={styles.startFarmingHint}>
+                Select a crop and wait for the fertilizer recommendation to load.
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -646,6 +1036,31 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.medium,
     color: colors.mutedForeground,
   },
+  pinnedFarmBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+    backgroundColor: colors.successLight,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  pinnedFarmBannerText: {
+    flex: 1,
+    gap: 4,
+  },
+  pinnedFarmBannerTitle: {
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.bold,
+    color: colors.foreground,
+  },
+  pinnedFarmBannerBody: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.regular,
+    color: colors.mutedForeground,
+    lineHeight: 20,
+  },
   scrollContent: {
     padding: spacing.lg,
     paddingBottom: spacing['3xl'],
@@ -693,6 +1108,13 @@ const styles = StyleSheet.create({
   sectionDescriptionEm: {
     fontFamily: fontFamily.semibold,
     color: colors.foreground,
+  },
+  soilPendingNote: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.regular,
+    color: colors.mutedForeground,
+    lineHeight: 20,
+    marginBottom: spacing.sm,
   },
   healthGrid: {
     gap: spacing.md,
@@ -946,6 +1368,9 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     backgroundColor: colors.primaryAlpha10,
   },
+  cropSuggestionCardDisabled: {
+    opacity: 0.65,
+  },
   cropSuggestionLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -984,6 +1409,53 @@ const styles = StyleSheet.create({
     color: colors.mutedForeground,
   },
   timelineWrap: {
+    marginBottom: spacing.lg,
+  },
+  startFarmingButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: radius.lg,
+  },
+  startFarmingButtonDisabled: {
+    opacity: 0.5,
+  },
+  startFarmingButtonText: {
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.bold,
+    color: colors.primaryForeground,
+  },
+  startFarmingHint: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.regular,
+    color: colors.mutedForeground,
+    textAlign: 'center',
+  },
+  cancelFarmingButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.background,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: radius.lg,
+    borderWidth: 2,
+    borderColor: colors.destructive,
+  },
+  cancelFarmingButtonDisabled: {
+    opacity: 0.55,
+  },
+  cancelFarmingButtonText: {
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.bold,
+    color: colors.destructive,
+  },
+  fertTimelineMissingCard: {
     marginBottom: spacing.lg,
   },
   fertilizerLoadingBlock: {
@@ -1048,125 +1520,135 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     opacity: 0.9,
   },
-  fertilizerPredictionHero: {
-    backgroundColor: colors.primaryAlpha10,
-    borderRadius: radius.lg,
-    padding: spacing.xl,
-    gap: spacing.md,
-    marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  fertilizerHeroBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 4,
-    borderRadius: radius.full,
-  },
-  fertilizerHeroBadgeText: {
-    fontSize: fontSize.xs,
-    fontFamily: fontFamily.bold,
-    color: colors.primaryForeground,
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-  },
-  fertilizerPredictionValue: {
-    fontSize: fontSize['2xl'],
-    fontFamily: fontFamily.bold,
-    color: colors.greenDark,
-    letterSpacing: -0.3,
-  },
-  fertilizerConfidencePill: {
-    alignSelf: 'flex-start',
+  fertSummaryCard: {
     backgroundColor: colors.card,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    marginBottom: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  fertilizerConfidencePillText: {
-    fontSize: fontSize.sm,
-    fontFamily: fontFamily.medium,
-    color: colors.foreground,
-  },
-  fertilizerPredictionHint: {
-    fontSize: fontSize.sm,
-    fontFamily: fontFamily.regular,
-    color: colors.mutedForeground,
-    lineHeight: 20,
-  },
-  fertilizerSubheading: {
+  fertSummaryTitle: {
     fontSize: fontSize.md,
     fontFamily: fontFamily.semibold,
     color: colors.foreground,
-    marginTop: spacing.md,
-    marginBottom: 2,
+    marginBottom: spacing.xs,
   },
-  fertilizerSubheadingHint: {
+  fertRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  fertRowLabel: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.medium,
+    color: colors.mutedForeground,
+  },
+  fertRowValue: {
+    flexShrink: 0,
+    maxWidth: '58%',
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.semibold,
+    color: colors.foreground,
+    textAlign: 'right',
+  },
+  fertRowValueEm: {
+    flexShrink: 0,
+    maxWidth: '58%',
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.bold,
+    color: colors.greenDark,
+    textAlign: 'right',
+  },
+  fertSectionHeading: {
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.semibold,
+    color: colors.foreground,
+    marginTop: spacing.sm,
+  },
+  fertSectionHint: {
     fontSize: fontSize.sm,
     fontFamily: fontFamily.regular,
     color: colors.mutedForeground,
     lineHeight: 18,
     marginBottom: spacing.sm,
   },
-  fertilizerAltCard: {
+  fertNpkRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  fertNpkPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  fertNpkSymbol: {
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.bold,
+    color: colors.primary,
+    width: 18,
+  },
+  fertOptionCard: {
     backgroundColor: colors.background,
     borderRadius: radius.lg,
     padding: spacing.lg,
     marginBottom: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
-    gap: spacing.sm,
+    gap: spacing.md,
   },
-  fertilizerAltTop: {
+  fertOptionTitle: {
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.bold,
+    color: colors.foreground,
+  },
+  fertPhaseBlock: {
+    gap: spacing.xs,
+  },
+  fertPhaseTitle: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.semibold,
+    color: colors.primary,
+    marginBottom: spacing.xs,
+  },
+  fertLineRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: spacing.md,
+    paddingVertical: spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
-  fertilizerAltLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
+  fertLineFert: {
     flex: 1,
-  },
-  fertilizerAltRank: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.primaryAlpha10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fertilizerAltRankText: {
     fontSize: fontSize.sm,
-    fontFamily: fontFamily.bold,
-    color: colors.primary,
-  },
-  fertilizerAltName: {
-    flex: 1,
-    fontSize: fontSize.md,
-    fontFamily: fontFamily.semibold,
+    fontFamily: fontFamily.regular,
     color: colors.foreground,
-    lineHeight: 22,
+    lineHeight: 20,
   },
-  fertilizerAltPct: {
-    fontSize: fontSize.md,
-    fontFamily: fontFamily.bold,
+  fertLineBags: {
+    flexShrink: 0,
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.semibold,
     color: colors.greenDark,
   },
-  fertilizerBarTrack: {
-    height: 8,
-    backgroundColor: colors.muted,
-    borderRadius: 4,
-    overflow: 'hidden',
+  fertModePhase: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.semibold,
+    color: colors.primary,
+    marginTop: spacing.sm,
   },
-  fertilizerBarFill: {
-    height: '100%',
-    backgroundColor: colors.primary,
-    borderRadius: 4,
+  fertModeBody: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.regular,
+    color: colors.foreground,
+    lineHeight: 20,
   },
   fertilizerDisclaimer: {
     flexDirection: 'row',

@@ -189,6 +189,8 @@ export interface FarmingTimelineProps {
   currentDay: number;
   phases: CropPhaseDef[];
   plantingWindowNote?: string;
+  /** When set, replaces the default “IRRI / FAO …” footnote under the header. */
+  timelineFootnote?: string;
 }
 
 const FarmingTimeline: React.FC<FarmingTimelineProps> = ({
@@ -199,6 +201,7 @@ const FarmingTimeline: React.FC<FarmingTimelineProps> = ({
   currentDay,
   phases,
   plantingWindowNote,
+  timelineFootnote,
 }) => {
   const cycleDay = currentDay;
   const isPrePlant = cycleDay < 1;
@@ -300,8 +303,8 @@ const FarmingTimeline: React.FC<FarmingTimelineProps> = ({
         <Text style={styles.monthBanner}>{rangeBanner}</Text>
         <Text style={styles.subtitle}>{statusSubtitle}</Text>
         <Text style={styles.estimateNote}>
-          Durations follow typical extension / IRRI / FAO ranges for mid-season cultivars. Swipe the
-          calendar sideways to view each month — useful to copy into a field notebook.
+          {timelineFootnote ??
+            'Durations follow typical extension / IRRI / FAO ranges for mid-season cultivars. Swipe the calendar sideways to view each month — useful to copy into a field notebook.'}
         </Text>
         {plantingWindowNote ? <Text style={styles.windowNote}>{plantingWindowNote}</Text> : null}
       </View>

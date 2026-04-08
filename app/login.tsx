@@ -6,7 +6,6 @@ import { Eye, EyeOff, Sprout } from "lucide-react-native";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -17,9 +16,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useAppDialog } from "@/contexts/app-dialog-context";
 
 const LoginScreen = () => {
   const router = useRouter();
+  const { showDialog } = useAppDialog();
   const [idInput, setIdInput] = useState("");
   const [pwInput, setPwInput] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -27,7 +28,11 @@ const LoginScreen = () => {
 
   const handleLogin = async () => {
     if (!idInput.trim() || !pwInput.trim()) {
-      Alert.alert("Error", "Please enter both username and password");
+      showDialog({
+        title: "Missing fields",
+        message: "Please enter both username and password.",
+        variant: "warning",
+      });
       return;
     }
 
@@ -47,8 +52,21 @@ const LoginScreen = () => {
           });
         }
 
-        Alert.alert("Success", "Login successful!");
-        router.push("/(tabs)/farmer" as any);
+        showDialog({
+          title: "Welcome back",
+          message: "You're signed in. Continue to your farms.",
+          variant: "success",
+          buttons: [
+            {
+              label: "Continue",
+              variant: "primary",
+              onPress: (dismiss) => {
+                dismiss();
+                router.push("/(tabs)/farmer" as any);
+              },
+            },
+          ],
+        });
         return;
       }
     } catch (error: any) {
@@ -57,7 +75,11 @@ const LoginScreen = () => {
       setIsLoading(false);
     }
 
-    Alert.alert("Error", "Invalid username or password. Please try again.");
+    showDialog({
+      title: "Sign-in failed",
+      message: "Invalid username or password. Please try again.",
+      variant: "error",
+    });
   };
 
   return (

@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { getFarms } from '@/services/farm.service';
+import {
+  getFarmingSession,
+  type FarmingSessionRow,
+  type FarmingSessionSoilSnapshot,
+} from '@/services/farming-session.service';
 import { getUserData } from '@/services/token.service';
-import { getSoilHealth } from '@/services/soil-health.service';
-import { predict } from '@/services/ml.service';
+import { getPendingSoil, type PendingSoilSnapshot } from '@/services/ml.service';
 import { GetWeatherToday } from '@/services/weather.service';
 import { swrKeys } from '@/constants/swr-keys';
 import type { IFarm } from '@/types/farm.types';
 import type { ISoilHealth } from '@/types/soil-health.types';
+import type { FertilizerPredictData } from '@/services/ml.service';
 
 const sharedSwrOptions = {
   revalidateOnFocus: false,
@@ -15,6 +20,44 @@ const sharedSwrOptions = {
   shouldRetryOnError: true,
   errorRetryCount: 2,
 } as const;
+
+/** Map ML pending `soil` (+ EC) into the same shape as API soil health rows. */
+function pendingSoilToISoilHealth(
+  farmId: string,
+  snap: PendingSoilSnapshot
+): ISoilHealth {
+  const { soil, fertilizer_inputs } = snap;
+  const salinity =
+    fertilizer_inputs?.ec != null && Number.isFinite(fertilizer_inputs.ec)
+      ? fertilizer_inputs.ec
+      : soil.salinity;
+  return {
+    farm_id: farmId,
+    nitrogen: soil.nitrogen,
+    phosphorus: soil.phosphorus,
+    potassium: soil.potassium,
+    ph: soil.ph,
+    salinity,
+    temperature: soil.temperature,
+    moisture: soil.moisture,
+  };
+}
+
+function sessionSoilToISoilHealth(
+  farmId: string,
+  snap: FarmingSessionSoilSnapshot
+): ISoilHealth {
+  return {
+    farm_id: farmId,
+    nitrogen: Number(snap.nitrogen),
+    phosphorus: Number(snap.phosphorus),
+    potassium: Number(snap.potassium),
+    ph: Number(snap.ph),
+    salinity: Number(snap.salinity),
+    temperature: Number(snap.temperature),
+    moisture: Number(snap.moisture),
+  };
+}
 
 export interface CropProbability {
   crop_class: string;
@@ -37,21 +80,14 @@ export interface WeatherDataShape {
   timestamp?: number;
 }
 
-function soilFingerprint(soil: ISoilHealth): string {
-  return [
-    soil.nitrogen,
-    soil.phosphorus,
-    soil.potassium,
-    soil.ph,
-    soil.salinity,
-    soil.temperature,
-    soil.moisture,
-  ].join('|');
+function isActiveSession(row: FarmingSessionRow | null | undefined): row is FarmingSessionRow {
+  return row != null && typeof row.farm_id === 'string' && row.farm_id.length > 0;
 }
 
 /**
- * Parallel SWR streams for farm detail: farms list, soil, weather (lat/lon), ML prediction.
- * Cached keys match farmer index (`farmsList`) so list → detail avoids duplicate farm fetches.
+ * Farm detail: weather + farms list.
+ * Soil / crops / fertilizer: either **pinned** `GET /farm/farming/{farmId}` (no ML pending)
+ * or **live** `GET {ML}/pending/soil`.
  */
 export function useFarmDetailData(farmId: string | undefined) {
   const [farmerId, setFarmerId] = useState<string | null>(null);
@@ -73,22 +109,108 @@ export function useFarmDetailData(farmId: string | undefined) {
     { ...sharedSwrOptions, dedupingInterval: 60_000 }
   );
 
-  const soilSWR = useSWR(
-    farmId ? swrKeys.soilForFarm(farmId) : null,
-    () => getSoilHealth({ farm_id: farmId! }),
-    { ...sharedSwrOptions, dedupingInterval: 30_000 }
-  );
-
   const farm = useMemo(() => {
     const list = farmsSWR.data?.data as IFarm[] | undefined;
     if (!farmId || !list?.length) return null;
     return list.find((f) => f.farm_id === farmId) ?? null;
   }, [farmsSWR.data, farmId]);
 
-  const soilHealth = useMemo(() => {
-    const arr = soilSWR.data?.data as ISoilHealth[] | undefined;
-    return arr?.[0] ?? null;
-  }, [soilSWR.data]);
+  const farmingSessionSWR = useSWR(
+    farmId ? swrKeys.farmingSession(farmId) : null,
+    () => getFarmingSession(farmId!),
+    { ...sharedSwrOptions, dedupingInterval: 30_000 }
+  );
+
+  const sessionRow = farmingSessionSWR.data?.data;
+  const farmingSessionActive = isActiveSession(sessionRow);
+
+  const pendingSoilSWR = useSWR(
+    farmId && !farmingSessionActive ? swrKeys.pendingSoil() : null,
+    () => getPendingSoil(),
+    {
+      ...sharedSwrOptions,
+      dedupingInterval: 0,
+      refreshInterval: farmingSessionActive ? 0 : 20_000,
+    }
+  );
+
+  const { soilHealthForDisplay, soilHealthFromPending, soilHealthFromFarmingSession } =
+    useMemo(() => {
+      if (!farmId) {
+        return {
+          soilHealthForDisplay: null as ISoilHealth | null,
+          soilHealthFromPending: false,
+          soilHealthFromFarmingSession: false,
+        };
+      }
+      if (farmingSessionActive && sessionRow?.soil_snapshot) {
+        return {
+          soilHealthForDisplay: sessionSoilToISoilHealth(farmId, sessionRow.soil_snapshot),
+          soilHealthFromPending: false,
+          soilHealthFromFarmingSession: true,
+        };
+      }
+      const pending = pendingSoilSWR.data;
+      if (!pending?.ok || !pending.data) {
+        return {
+          soilHealthForDisplay: null,
+          soilHealthFromPending: false,
+          soilHealthFromFarmingSession: false,
+        };
+      }
+      return {
+        soilHealthForDisplay: pendingSoilToISoilHealth(farmId, pending.data),
+        soilHealthFromPending: true,
+        soilHealthFromFarmingSession: false,
+      };
+    }, [farmId, farmingSessionActive, sessionRow, pendingSoilSWR.data]);
+
+  const topCrops = useMemo((): CropProbability[] => {
+    if (farmingSessionActive && sessionRow?.top_crop_probabilities?.length) {
+      return sessionRow.top_crop_probabilities.map(({ crop_class, probability }) => ({
+        crop_class,
+        probability,
+      }));
+    }
+    const r = pendingSoilSWR.data;
+    if (!r?.ok || !r.data) return [];
+    const top = r.data.probabilities_top_3 ?? [];
+    return top.map(({ crop_class, probability }) => ({
+      crop_class,
+      probability,
+    }));
+  }, [farmingSessionActive, sessionRow, pendingSoilSWR.data]);
+
+  /** Raw ML `features` from pending soil (for API soil_health_test on start farming). */
+  const pendingSoilFeatures = useMemo((): number[] | undefined => {
+    if (farmingSessionActive) return undefined;
+    const r = pendingSoilSWR.data;
+    if (!r?.ok || !r.data) return undefined;
+    const f = r.data.features;
+    if (!Array.isArray(f) || f.length < 6) return undefined;
+    return f.map((x) => Number(x));
+  }, [farmingSessionActive, pendingSoilSWR.data]);
+
+  const pendingSoilReceivedAt = useMemo((): string | null => {
+    if (farmingSessionActive && sessionRow?.soil_snapshot?.received_at) {
+      return sessionRow.soil_snapshot.received_at ?? null;
+    }
+    if (farmingSessionActive) return null;
+    const r = pendingSoilSWR.data;
+    if (!r?.ok || !r.data?.received_at) return null;
+    return r.data.received_at;
+  }, [farmingSessionActive, sessionRow, pendingSoilSWR.data]);
+
+  const pinnedFertilizerData: FertilizerPredictData | null = useMemo(() => {
+    if (!farmingSessionActive || !sessionRow?.fertilizer_recommendation) return null;
+    return sessionRow.fertilizer_recommendation as FertilizerPredictData;
+  }, [farmingSessionActive, sessionRow]);
+
+  const pinnedSelectedCrop =
+    farmingSessionActive && sessionRow?.selected_crop ? sessionRow.selected_crop : null;
+
+  const farmingStartedAt =
+    farmingSessionActive && sessionRow?.started_at ? sessionRow.started_at : null;
 
   const lat = farm?.latitude;
   const lon = farm?.longitude;
@@ -100,40 +222,6 @@ export function useFarmDetailData(farmId: string | undefined) {
     { ...sharedSwrOptions, dedupingInterval: 10 * 60_000 }
   );
 
-  const fp = soilHealth ? soilFingerprint(soilHealth) : null;
-
-  const predictSWR = useSWR(
-    farmId && fp ? swrKeys.mlPredict(farmId, fp) : null,
-    async () => {
-      const s = soilHealth!;
-      const features = [
-        s.nitrogen,
-        s.phosphorus,
-        s.potassium,
-        s.ph,
-        s.salinity,
-        s.temperature,
-        s.moisture,
-      ];
-      return predict(
-        features,
-        farmId!,
-        hasCoords ? lat! : undefined,
-        hasCoords ? lon! : undefined
-      );
-    },
-    { ...sharedSwrOptions, dedupingInterval: 60_000 }
-  );
-
-  const topCrops = useMemo((): CropProbability[] => {
-    if (!predictSWR.data) return [];
-    const raw = predictSWR.data as { data?: { probabilities?: CropProbability[] }; probabilities?: CropProbability[] };
-    const inner = raw?.data ?? raw;
-    const probs = inner?.probabilities ?? [];
-    const sorted = [...probs].sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0));
-    return sorted.slice(0, 3);
-  }, [predictSWR.data]);
-
   const weather = useMemo((): WeatherDataShape | null => {
     const w = weatherSWR.data as { data?: WeatherDataShape } | WeatherDataShape | undefined;
     if (!w) return null;
@@ -143,30 +231,40 @@ export function useFarmDetailData(farmId: string | undefined) {
   const pageReady =
     !!farmId &&
     !farmsSWR.isLoading &&
-    !soilSWR.isLoading &&
+    !farmingSessionSWR.isLoading &&
     (!hasCoords || !weatherSWR.isLoading) &&
-    (!soilHealth || !predictSWR.isLoading);
+    (farmingSessionActive ? true : !pendingSoilSWR.isLoading);
 
   const farmsError = farmsSWR.error;
 
   return {
+    farmerId,
     farm,
-    soilHealth,
+    soilHealthForDisplay,
+    /** True when values come from ML `GET /pending/soil`. */
+    soilHealthFromPending,
+    /** True when values come from saved `GET /farm/farming/{farmId}`. */
+    soilHealthFromFarmingSession,
+    farmingSessionActive,
+    pinnedFertilizerData,
+    pinnedSelectedCrop,
+    farmingStartedAt,
+    pendingSoilReceivedAt,
+    pendingSoilFeatures,
     weather,
     topCrops,
     farmsError,
-    /** True only when there is no cached data yet (avoids flashing loader on revalidate). */
     isInitialLoading: !!farmId && !pageReady,
     isValidating:
       farmsSWR.isValidating ||
-      soilSWR.isValidating ||
+      farmingSessionSWR.isValidating ||
       weatherSWR.isValidating ||
-      predictSWR.isValidating,
+      pendingSoilSWR.isValidating,
     mutate: {
       farms: farmsSWR.mutate,
-      soil: soilSWR.mutate,
       weather: weatherSWR.mutate,
-      predict: predictSWR.mutate,
+      pendingSoil: pendingSoilSWR.mutate,
+      farmingSession: farmingSessionSWR.mutate,
     },
   };
 }
