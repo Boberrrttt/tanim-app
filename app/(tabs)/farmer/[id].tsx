@@ -57,10 +57,13 @@ function formatBagsPerHa(bags: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }
 
-/** First 10 chars of an ISO instant → YYYY-MM-DD for ML `cycle_start_date`. */
-function isoTimestampToYmd(iso: string): string | null {
-  const d = iso.trim().slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+/** Local calendar date as YYYY-MM-DD — used as Day 1 for the crop calendar (not UTC). */
+function localTodayYmd(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function parseYmdLocal(ymd: string): Date | null {
@@ -166,6 +169,7 @@ export default function FarmDetailsScreen() {
     farmingSessionActive,
     pinnedFertilizerData,
     pinnedSelectedCrop,
+    farmingSessionCycleStartYmd,
     farmingStartedAt,
     pendingSoilReceivedAt,
     pendingSoilFeatures,
@@ -208,10 +212,6 @@ export default function FarmDetailsScreen() {
       setFertilizerLoading(true);
       setFertilizerError(null);
       try {
-        const cycleYmd =
-          pendingSoilReceivedAt != null
-            ? isoTimestampToYmd(pendingSoilReceivedAt)
-            : null;
         const res = await predictFertilizer(
           {
             nitrogen: soilHealthForDisplay.nitrogen,
@@ -220,7 +220,7 @@ export default function FarmDetailsScreen() {
             ph: soilHealthForDisplay.ph,
             crop: selectedCrop,
             farm_id: id,
-            ...(cycleYmd ? { cycle_start_date: cycleYmd } : {}),
+            cycle_start_date: localTodayYmd(),
           },
           { signal: controller.signal }
         );
@@ -267,10 +267,7 @@ export default function FarmDetailsScreen() {
     }
     setStartFarmingSaving(true);
     try {
-      const cycleYmd =
-        isoTimestampToYmd(pendingSoilReceivedAt ?? '') ??
-        fertilizerData.farming_timeline?.cycle_start_date ??
-        undefined;
+      const cycleYmd = localTodayYmd();
       const lat =
         farm?.latitude != null && Number.isFinite(farm.latitude) ? farm.latitude : undefined;
       const lon =
@@ -804,19 +801,9 @@ export default function FarmDetailsScreen() {
               {(() => {
                 const ft = fertilizerData.farming_timeline;
                 if (!ft?.phases?.length || !ft.total_days) return null;
-                const ymd = ft.cycle_start_date;
-                if (!ymd) {
-                  return (
-                    <View style={[styles.fertilizerEmptyCard, styles.fertTimelineMissingCard]}>
-                      <Info size={28} color={colors.mutedForeground} strokeWidth={2} />
-                      <Text style={styles.fertilizerEmptyTitle}>Calendar needs a reading date</Text>
-                      <Text style={styles.fertilizerEmptyBody}>
-                        The fertilizer response did not include cycle_start_date. This is sent when your ML
-                        pending soil snapshot has a valid received_at timestamp.
-                      </Text>
-                    </View>
-                  );
-                }
+                const ymd = (farmingSessionCycleStartYmd ||
+                  ft.cycle_start_date?.trim() ||
+                  localTodayYmd()) as string;
                 const cycleStart = parseYmdLocal(ymd);
                 if (!cycleStart) return null;
                 const cycleEnd = getCycleEndDate(cycleStart, ft.total_days);
@@ -837,7 +824,11 @@ export default function FarmDetailsScreen() {
                       currentDay={day}
                       phases={phases}
                       plantingWindowNote={ft.planting_window_note}
-                      timelineFootnote={`Template ${ft.template_id} from your fertilizer recommendation. Day 1 = ${ymd} (soil reading date, echoed as cycle_start_date). Swipe the calendar to browse months.`}
+                      timelineFootnote={
+                        farmingSessionCycleStartYmd
+                          ? `Template ${ft.template_id}. Day 1 = ${ymd} (saved when you started farming). Phase lengths follow IRRI / FAO / extension ranges. Swipe the calendar to browse months.`
+                          : `Template ${ft.template_id} from your fertilizer recommendation. Day 1 = today (${ymd}). Phase lengths follow IRRI / FAO / extension ranges for each crop group. Swipe the calendar to browse months.`
+                      }
                     />
                   </View>
                 );

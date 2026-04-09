@@ -2,7 +2,9 @@
  * Crop growth cycles for the FarmingTimeline UI. Day 1 = field planting or transplant.
  *
  * Vocabulary aligns with USTP RSL workbook **Crops Planted** (Consolidated Soil Info RSL xlsx);
- * calendar lengths follow agronomy references (IRRI, FAO, land-grant extension), not spreadsheet columns.
+ * `totalDays` and phase spans follow agronomy references: IRRI rice growth handbooks (short <120 d,
+ * medium 120–140 d), FAO cassava / sugarcane guides, USDA–NASS and extension corn/tomato DTM ranges,
+ * not spreadsheet columns.
  * All templates use four UI phases: Sowing, Vegetative, Flowering, Harvest (some “Flowering” labels are
  * agronomic shorthand, e.g. sugarcane ripening — see per-template notes).
  *
@@ -65,12 +67,12 @@ export const TIMELINE_TEMPLATES: Record<TimelineTemplateId, CropCycleMeta> = {
   ),
 
   CEREAL: fourPhaseMeta(
-    105,
+    110,
     [
-      [1, 14],
-      [15, 58],
-      [59, 78],
-      [79, 105],
+      [1, 15],
+      [16, 61],
+      [62, 82],
+      [83, 110],
     ],
     [
       'Emergence and early vegetative growth.',
@@ -78,16 +80,16 @@ export const TIMELINE_TEMPLATES: Record<TimelineTemplateId, CropCycleMeta> = {
       'Pollination and reproductive window (e.g. tassel/silk for maize).',
       'Grain fill through physiological maturity / harvest moisture.',
     ],
-    'Sweet corn is often shorter (~60–100 d); field/grain hybrids often 100–120+ d — check RM on bag.'
+    'Sweet corn is often shorter (~60–100 d); grain hybrids commonly ~100–115 d — check RM on bag.'
   ),
 
   RICE: fourPhaseMeta(
-    120,
+    125,
     [
-      [1, 30],
-      [31, 70],
-      [71, 100],
-      [101, 120],
+      [1, 33],
+      [34, 76],
+      [77, 108],
+      [109, 125],
     ],
     [
       'Establishment, rooting, and tillering.',
@@ -95,7 +97,7 @@ export const TIMELINE_TEMPLATES: Record<TimelineTemplateId, CropCycleMeta> = {
       'Panicle development through heading and flowering.',
       'Ripening, grain fill, and harvest timing.',
     ],
-    'IRRI: short types ~100–120 d, medium ~120–140 d, long 160+ — adjust for cultivar and transplant vs DSR.'
+    'IRRI-style brackets: short <120 d, medium 120–140 d, long 160+ d — this template ~125 d (medium-short); adjust for cultivar and transplant vs DSR.'
   ),
 
   WHEAT: fourPhaseMeta(
@@ -337,12 +339,12 @@ export const TIMELINE_TEMPLATES: Record<TimelineTemplateId, CropCycleMeta> = {
   ),
 
   CAMOTE: fourPhaseMeta(
-    120,
+    110,
     [
-      [1, 20],
-      [21, 55],
-      [56, 90],
-      [91, 120],
+      [1, 18],
+      [19, 50],
+      [51, 82],
+      [83, 110],
     ],
     [
       'Slip/root establishment and vine growth.',
@@ -350,24 +352,24 @@ export const TIMELINE_TEMPLATES: Record<TimelineTemplateId, CropCycleMeta> = {
       'Tuber initiation and early bulking.',
       'Tuber bulking and harvest before heavy frost.',
     ],
-    'Sweet potato commonly ~100–120 d; taro (gabi) often longer in the field — illustrative here.'
+    'Sweet potato commonly ~100–120 d from planting; taro (gabi) often longer — template centers ~110 d.'
   ),
 
   CASSAVA: fourPhaseMeta(
-    300,
+    330,
     [
-      [1, 30],
-      [31, 120],
-      [121, 240],
-      [241, 300],
+      [1, 33],
+      [34, 132],
+      [133, 264],
+      [265, 330],
     ],
     [
       'Establishment and early vegetative growth.',
       'Strong vegetative growth and starch accumulation start.',
       'Storage root bulking.',
-      'Harvest window — often ~9–12 mo for many systems; wider range possible.',
+      'Harvest window — FAO / CARDI: many systems 9–12 mo; roots can be held longer for industrial starch.',
     ],
-    'Harvest age strongly affects yield and starch — follow local variety recommendations.'
+    'Harvest age strongly affects yield and starch — template ~11 mo (330 d); verify for your variety.'
   ),
 
   STRAWBERRY: fourPhaseMeta(
@@ -463,8 +465,8 @@ export function addDays(d: Date, n: number): Date {
 }
 
 /**
- * Example planting date for the calendar: first day of next calendar month.
- * Avoids anchoring every crop to “today”, which is rarely the real plant date.
+ * Example planting date for demos/tests: first day of next calendar month.
+ * Farm details uses today as Day 1 when previewing a crop (`cycle_start_date` on fertilizer predict).
  */
 export function getDefaultPlannedPlantingDate(): Date {
   const now = new Date();

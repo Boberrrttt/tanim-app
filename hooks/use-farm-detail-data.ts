@@ -209,6 +209,12 @@ export function useFarmDetailData(farmId: string | undefined) {
   const pinnedSelectedCrop =
     farmingSessionActive && sessionRow?.selected_crop ? sessionRow.selected_crop : null;
 
+  /** Saved Day 1 for the crop calendar when a session exists (from `POST /farm/farming`). */
+  const farmingSessionCycleStartYmd =
+    farmingSessionActive && sessionRow?.cycle_start_date?.trim()
+      ? sessionRow.cycle_start_date.trim()
+      : null;
+
   const farmingStartedAt =
     farmingSessionActive && sessionRow?.started_at ? sessionRow.started_at : null;
 
@@ -248,6 +254,7 @@ export function useFarmDetailData(farmId: string | undefined) {
     farmingSessionActive,
     pinnedFertilizerData,
     pinnedSelectedCrop,
+    farmingSessionCycleStartYmd,
     farmingStartedAt,
     pendingSoilReceivedAt,
     pendingSoilFeatures,

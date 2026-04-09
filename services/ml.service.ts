@@ -105,7 +105,7 @@ export interface FertilizerPredictInput {
   ph: number;
   crop: string;
   farm_id?: string;
-  /** ISO YYYY-MM-DD; server echoes in `farming_timeline.cycle_start_date`. */
+  /** ISO YYYY-MM-DD (local) for Day 1 of the crop calendar; server echoes in `farming_timeline`. */
   cycle_start_date?: string;
 }
 
