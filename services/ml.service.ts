@@ -75,6 +75,60 @@ export interface FertilizerFarmingTimeline {
   cycle_start_date?: string;
 }
 
+function readNum(v: unknown): number {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/** Coerce one phase from ML JSON (snake_case or camelCase). */
+function normalizeTimelinePhase(p: unknown): FertilizerTimelinePhase | null {
+  if (!p || typeof p !== "object") return null;
+  const o = p as Record<string, unknown>;
+  const name = String(o.name ?? "").trim();
+  const day_start = readNum(o.day_start ?? o.dayStart);
+  const day_end = readNum(o.day_end ?? o.dayEnd);
+  const description = String(o.description ?? "").trim();
+  if (!name || !Number.isFinite(day_start) || !Number.isFinite(day_end)) return null;
+  return { name, day_start, day_end, description };
+}
+
+/**
+ * Coerce `farming_timeline` from the fertilizer model (snake_case or camelCase keys).
+ * UI should only use the returned object — not local crop-cycle templates.
+ */
+export function normalizeFarmingTimeline(raw: unknown): FertilizerFarmingTimeline | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  const phasesRaw = o.phases;
+  if (!Array.isArray(phasesRaw)) return undefined;
+  const phases = phasesRaw
+    .map(normalizeTimelinePhase)
+    .filter((x): x is FertilizerTimelinePhase => x != null);
+  const total_days = readNum(o.total_days ?? o.totalDays);
+  if (!Number.isFinite(total_days) || total_days <= 0 || phases.length === 0) return undefined;
+  const tid = String(o.template_id ?? o.templateId ?? "").trim();
+  const template_id = tid || "—";
+  const planting_window_note =
+    typeof o.planting_window_note === "string"
+      ? o.planting_window_note
+      : typeof o.plantingWindowNote === "string"
+        ? o.plantingWindowNote
+        : undefined;
+  const cycle_start_date =
+    typeof o.cycle_start_date === "string"
+      ? o.cycle_start_date
+      : typeof o.cycleStartDate === "string"
+        ? o.cycleStartDate
+        : undefined;
+  return { template_id, total_days, phases, planting_window_note, cycle_start_date };
+}
+
+export function normalizeFertilizerPredictData(data: FertilizerPredictData): FertilizerPredictData {
+  const ft = normalizeFarmingTimeline(data.farming_timeline);
+  if (!ft) return data;
+  return { ...data, farming_timeline: ft };
+}
+
 /** `data` from successful `POST /predict/fertilizer` on tanim-model. */
 export interface FertilizerPredictData {
   crop: string;
@@ -129,6 +183,8 @@ export interface PendingSoilRequestPayload {
   farm_id?: string | null;
   lat?: number | null;
   lng?: number | null;
+  /** Some clients send `longitude` instead of `lng`. */
+  longitude?: number | null;
 }
 
 /** Exact successful `POST /predict` JSON (stored on pending snapshot as `predict_response`). */
@@ -330,7 +386,14 @@ export const predictFertilizer = async (
         JSON.stringify(response.data)
       );
     }
-    return response.data;
+    const bodyOut = response.data;
+    if (bodyOut.status === "success" && bodyOut.data) {
+      return {
+        ...bodyOut,
+        data: normalizeFertilizerPredictData(bodyOut.data),
+      };
+    }
+    return bodyOut;
   } catch (error: unknown) {
     if (isAbortLikeError(error)) throw error;
     const ax = error as {

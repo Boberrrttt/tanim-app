@@ -28,6 +28,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { isAbortLikeError } from '@/services/api';
 import {
   predictFertilizer,
+  normalizeFarmingTimeline,
   type FertilizerPredictData,
 } from '@/services/ml.service';
 import { useFarmDetailData } from '@/hooks/use-farm-detail-data';
@@ -174,6 +175,10 @@ export default function FarmDetailsScreen() {
     pendingSoilReceivedAt,
     pendingSoilFeatures,
     weather,
+    weatherCoords,
+    hasWeatherCoords,
+    weatherError,
+    weatherLoading,
     topCrops,
     farmsError,
     isInitialLoading,
@@ -269,17 +274,21 @@ export default function FarmDetailsScreen() {
     try {
       const cycleYmd = localTodayYmd();
       const lat =
-        farm?.latitude != null && Number.isFinite(farm.latitude) ? farm.latitude : undefined;
+        farm?.latitude != null && Number.isFinite(farm.latitude)
+          ? farm.latitude
+          : weatherCoords?.lat != null && Number.isFinite(weatherCoords.lat)
+            ? weatherCoords.lat
+            : weather?.latitude != null && Number.isFinite(weather.latitude)
+              ? weather.latitude
+              : undefined;
       const lon =
-        farm?.longitude != null && Number.isFinite(farm.longitude) ? farm.longitude : undefined;
-      const wLat =
-        weather?.latitude != null && Number.isFinite(weather.latitude)
-          ? weather.latitude
-          : undefined;
-      const wLon =
-        weather?.longitude != null && Number.isFinite(weather.longitude)
-          ? weather.longitude
-          : undefined;
+        farm?.longitude != null && Number.isFinite(farm.longitude)
+          ? farm.longitude
+          : weatherCoords?.lon != null && Number.isFinite(weatherCoords.lon)
+            ? weatherCoords.lon
+            : weather?.longitude != null && Number.isFinite(weather.longitude)
+              ? weather.longitude
+              : undefined;
       const res = await startFarmingSession({
         farm_id: id,
         farmer_id: farmerId,
@@ -297,11 +306,7 @@ export default function FarmDetailsScreen() {
         fertilizer_recommendation: fertilizerData,
         top_crop_probabilities: topCrops,
         cycle_start_date: cycleYmd,
-        ...(lat != null && lon != null
-          ? { latitude: lat, longitude: lon }
-          : wLat != null && wLon != null
-            ? { latitude: wLat, longitude: wLon }
-            : {}),
+        ...(lat != null && lon != null ? { latitude: lat, longitude: lon } : {}),
         ...(pendingSoilFeatures && pendingSoilFeatures.length >= 6
           ? { features: pendingSoilFeatures }
           : {}),
@@ -356,6 +361,7 @@ export default function FarmDetailsScreen() {
     farmDetailMutate,
     farm,
     weather,
+    weatherCoords,
     showDialog,
   ]);
 
@@ -364,7 +370,7 @@ export default function FarmDetailsScreen() {
     showDialog({
       title: 'End farming?',
       message:
-        'This removes the saved soil snapshot and crop plan for this farm on the server. You can start farming again later with a new reading.',
+        'This ends the active farming session. Your snapshot stays on the server for history; this farm will use live ML readings again when you are not in an active session.',
       variant: 'warning',
       buttons: [
         { label: 'Keep farming', variant: 'ghost', onPress: (d) => d() },
@@ -394,8 +400,8 @@ export default function FarmDetailsScreen() {
                 setSelectedCrop(null);
                 showDialog({
                   title: 'Farming ended',
-                  message: res.data?.removed
-                    ? 'This farm will use live ML readings again when available.'
+                  message: res.data?.ended ?? res.data?.removed
+                    ? 'Session marked ended. This farm will use live ML readings again when available.'
                     : 'No active session was stored for this farm.',
                   variant: 'success',
                 });
@@ -622,11 +628,6 @@ export default function FarmDetailsScreen() {
                   maxValue="50"
                 />
               </View>
-              <View style={styles.summaryBox}>
-                <Text style={styles.summaryIcon}>💡</Text>
-                <Text style={styles.summaryTitle}>Quick summary</Text>
-                <Text style={styles.summaryText}>Good for vegetables. Soil holds water well.</Text>
-              </View>
             </>
           ) : (
             <View style={styles.emptyCard}>
@@ -681,6 +682,11 @@ export default function FarmDetailsScreen() {
                 </Text>
               </View>
             </>
+          ) : weatherLoading ? (
+            <View style={styles.weatherCard}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={[styles.weatherCondition, { marginTop: spacing.sm }]}>Loading weather…</Text>
+            </View>
           ) : (
             <View style={styles.weatherCard}>
               <Text style={styles.weatherEmoji}>⛅</Text>
@@ -754,8 +760,9 @@ export default function FarmDetailsScreen() {
           </View>
           <Text style={styles.sectionDescription}>
             Recommendations use BSWM-style rules: your readings are classified (Low / Medium / High), then
-            matched to this crop’s rate table. The crop calendar appears after the model responds; phase
-            lengths and labels come from that response. Always follow product labels and local extension
+            matched to this crop’s rate table. The crop calendar below uses only the{' '}
+            <Text style={styles.sectionDescriptionEm}>farming_timeline</Text> object from the fertilizer
+            model response (phases, day ranges, notes). Always follow product labels and local extension
             advice.
           </Text>
 
@@ -799,13 +806,35 @@ export default function FarmDetailsScreen() {
           ) : fertilizerData ? (
             <>
               {(() => {
-                const ft = fertilizerData.farming_timeline;
-                if (!ft?.phases?.length || !ft.total_days) return null;
+                const ft = normalizeFarmingTimeline(fertilizerData.farming_timeline);
+                if (!ft) {
+                  return (
+                    <View style={[styles.fertilizerEmptyCard, styles.timelineWrap]}>
+                      <Info size={28} color={colors.mutedForeground} strokeWidth={2} />
+                      <Text style={styles.fertilizerEmptyTitle}>No crop calendar in response</Text>
+                      <Text style={styles.fertilizerEmptyBody}>
+                        The fertilizer model did not return a usable{' '}
+                        <Text style={styles.sectionDescriptionEm}>farming_timeline</Text> (phases and
+                        total_days). Update the model service or try again.
+                      </Text>
+                    </View>
+                  );
+                }
                 const ymd = (farmingSessionCycleStartYmd ||
                   ft.cycle_start_date?.trim() ||
                   localTodayYmd()) as string;
                 const cycleStart = parseYmdLocal(ymd);
-                if (!cycleStart) return null;
+                if (!cycleStart) {
+                  return (
+                    <View style={[styles.fertilizerEmptyCard, styles.timelineWrap]}>
+                      <Info size={28} color={colors.warning} strokeWidth={2} />
+                      <Text style={styles.fertilizerEmptyTitle}>Invalid cycle start date</Text>
+                      <Text style={styles.fertilizerEmptyBody}>
+                        Could not parse Day 1 ({ymd}). Check cycle_start_date from the session or model.
+                      </Text>
+                    </View>
+                  );
+                }
                 const cycleEnd = getCycleEndDate(cycleStart, ft.total_days);
                 const day = getCurrentCycleDay(cycleStart, ft.total_days);
                 const phases = ft.phases.map((p) => ({
@@ -814,6 +843,9 @@ export default function FarmDetailsScreen() {
                   dayEnd: p.day_end,
                   description: p.description,
                 }));
+                const footnote = farmingSessionCycleStartYmd
+                  ? `From model: template_id “${ft.template_id}”, ${ft.total_days}-day cycle. Day 1 = ${ymd} (when farming started).`
+                  : `From model: template_id “${ft.template_id}”, ${ft.total_days}-day cycle. Day 1 = ${ymd} (preview uses today until you start farming).`;
                 return (
                   <View style={styles.timelineWrap}>
                     <FarmingTimeline
@@ -824,11 +856,7 @@ export default function FarmDetailsScreen() {
                       currentDay={day}
                       phases={phases}
                       plantingWindowNote={ft.planting_window_note}
-                      timelineFootnote={
-                        farmingSessionCycleStartYmd
-                          ? `Template ${ft.template_id}. Day 1 = ${ymd} (saved when you started farming). Phase lengths follow IRRI / FAO / extension ranges. Swipe the calendar to browse months.`
-                          : `Template ${ft.template_id} from your fertilizer recommendation. Day 1 = today (${ymd}). Phase lengths follow IRRI / FAO / extension ranges for each crop group. Swipe the calendar to browse months.`
-                      }
+                      timelineFootnote={footnote}
                     />
                   </View>
                 );
@@ -1168,27 +1196,6 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.semibold,
     color: colors.primary,
   },
-  summaryBox: {
-    backgroundColor: colors.primaryAlpha10,
-    borderRadius: radius.xl,
-    padding: spacing.xl,
-    gap: spacing.sm,
-    marginTop: spacing.lg,
-  },
-  summaryIcon: {
-    fontSize: 20,
-  },
-  summaryTitle: {
-    fontSize: fontSize.lg,
-    fontFamily: fontFamily.semibold,
-    color: colors.foreground,
-  },
-  summaryText: {
-    fontSize: fontSize.md,
-    fontFamily: fontFamily.regular,
-    color: colors.mutedForeground,
-    lineHeight: 22,
-  },
   emptyCard: {
     padding: spacing['2xl'],
     backgroundColor: colors.background,
@@ -1236,6 +1243,15 @@ const styles = StyleSheet.create({
     fontSize: fontSize.base,
     fontFamily: fontFamily.medium,
     color: colors.mutedForeground,
+  },
+  weatherHint: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.regular,
+    color: colors.mutedForeground,
+    textAlign: 'center',
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    lineHeight: 20,
   },
   weatherDetails: {
     flexDirection: 'row',

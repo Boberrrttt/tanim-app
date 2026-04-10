@@ -29,6 +29,8 @@ export interface FarmingSessionRow {
   top_crop_probabilities?: CropProbability[] | null;
   cycle_start_date?: string | null;
   farm_name?: string;
+  /** Set when session was ended; omitted or null on active sessions from API. */
+  ended_at?: string | null;
 }
 
 export interface StartFarmingSessionPayload {
@@ -101,8 +103,8 @@ export async function cancelFarmingSession(
   farmId: string,
   farmerId: string,
   options?: { signal?: AbortSignal }
-): Promise<ApiEnvelope<{ removed: boolean }>> {
-  const response = await apiClient.delete<ApiEnvelope<{ removed: boolean }>>(
+): Promise<ApiEnvelope<{ ended: boolean; removed?: boolean }>> {
+  const response = await apiClient.delete<ApiEnvelope<{ ended: boolean; removed?: boolean }>>(
     `/farm/farming/${encodeURIComponent(farmId)}`,
     {
       params: { farmer_id: farmerId },

@@ -7,12 +7,15 @@ import {
   type FarmingSessionSoilSnapshot,
 } from '@/services/farming-session.service';
 import { getUserData } from '@/services/token.service';
-import { getPendingSoil, type PendingSoilSnapshot } from '@/services/ml.service';
+import {
+  getPendingSoil,
+  type PendingSoilSnapshot,
+} from '@/services/ml.service';
 import { GetWeatherToday } from '@/services/weather.service';
 import { swrKeys } from '@/constants/swr-keys';
 import type { IFarm } from '@/types/farm.types';
 import type { ISoilHealth } from '@/types/soil-health.types';
-import type { FertilizerPredictData } from '@/services/ml.service';
+import { normalizeFertilizerPredictData, type FertilizerPredictData } from '@/services/ml.service';
 
 const sharedSwrOptions = {
   revalidateOnFocus: false,
@@ -20,6 +23,16 @@ const sharedSwrOptions = {
   shouldRetryOnError: true,
   errorRetryCount: 2,
 } as const;
+
+/** Optional dev/default location when farm + ML pending have no coordinates (Expo public env). */
+function envCoord(raw: string | undefined): number | undefined {
+  if (raw == null || !String(raw).trim()) return undefined;
+  const n = Number(String(raw).trim());
+  return Number.isFinite(n) ? n : undefined;
+}
+
+const WEATHER_FALLBACK_LAT = envCoord(process.env.EXPO_PUBLIC_WEATHER_FALLBACK_LAT);
+const WEATHER_FALLBACK_LON = envCoord(process.env.EXPO_PUBLIC_WEATHER_FALLBACK_LON);
 
 /** Map ML pending `soil` (+ EC) into the same shape as API soil health rows. */
 function pendingSoilToISoilHealth(
@@ -64,24 +77,32 @@ export interface CropProbability {
   probability: number;
 }
 
-export interface WeatherDataShape {
-  city?: string;
-  country?: string;
-  latitude?: number;
-  longitude?: number;
-  temperature: number;
-  feels_like?: number;
-  humidity: number;
-  pressure?: number;
-  description: string;
-  wind_speed: number;
-  wind_direction?: number;
-  visibility?: number;
-  timestamp?: number;
-}
+export type { WeatherDataShape } from '@/services/weather.service';
 
 function isActiveSession(row: FarmingSessionRow | null | undefined): row is FarmingSessionRow {
   return row != null && typeof row.farm_id === 'string' && row.farm_id.length > 0;
+}
+
+/**
+ * Lat/lng from ML `POST /predict` body stored on `GET /pending/soil` as `request_payload`.
+ * Only used when the pending snapshot is for this farm (or has no farm_id).
+ */
+function coordsFromPendingSnapshot(
+  farmId: string | undefined,
+  snap: PendingSoilSnapshot | undefined
+): { lat: number; lon: number } | null {
+  if (!farmId || !snap) return null;
+  const fid = snap.farm_id;
+  if (fid != null && String(fid).trim() !== '' && String(fid) !== String(farmId)) {
+    return null;
+  }
+  const p = snap.request_payload;
+  if (!p) return null;
+  const lat = p.lat != null ? Number(p.lat) : NaN;
+  const lonRaw = p.lng ?? p.longitude;
+  const lon = lonRaw != null ? Number(lonRaw) : NaN;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon };
 }
 
 /**
@@ -124,8 +145,9 @@ export function useFarmDetailData(farmId: string | undefined) {
   const sessionRow = farmingSessionSWR.data?.data;
   const farmingSessionActive = isActiveSession(sessionRow);
 
+  /** Fetch whenever a farm is open so `request_payload.lat/lng` can drive weather (even during an active session). */
   const pendingSoilSWR = useSWR(
-    farmId && !farmingSessionActive ? swrKeys.pendingSoil() : null,
+    farmId ? swrKeys.pendingSoil() : null,
     () => getPendingSoil(),
     {
       ...sharedSwrOptions,
@@ -203,7 +225,9 @@ export function useFarmDetailData(farmId: string | undefined) {
 
   const pinnedFertilizerData: FertilizerPredictData | null = useMemo(() => {
     if (!farmingSessionActive || !sessionRow?.fertilizer_recommendation) return null;
-    return sessionRow.fertilizer_recommendation as FertilizerPredictData;
+    return normalizeFertilizerPredictData(
+      sessionRow.fertilizer_recommendation as FertilizerPredictData
+    );
   }, [farmingSessionActive, sessionRow]);
 
   const pinnedSelectedCrop =
@@ -218,21 +242,32 @@ export function useFarmDetailData(farmId: string | undefined) {
   const farmingStartedAt =
     farmingSessionActive && sessionRow?.started_at ? sessionRow.started_at : null;
 
-  const lat = farm?.latitude;
-  const lon = farm?.longitude;
-  const hasCoords = lat != null && lon != null;
+  const pendingSnapForCoords =
+    farmId && pendingSoilSWR.data?.ok ? pendingSoilSWR.data.data : undefined;
+  const modelCoords = coordsFromPendingSnapshot(farmId, pendingSnapForCoords);
+
+  const farmLatRaw = farm?.latitude != null ? Number(farm.latitude) : NaN;
+  const farmLonRaw = farm?.longitude != null ? Number(farm.longitude) : NaN;
+  const farmLat = Number.isFinite(farmLatRaw) ? farmLatRaw : undefined;
+  const farmLon = Number.isFinite(farmLonRaw) ? farmLonRaw : undefined;
+
+  const lat =
+    (modelCoords && Number.isFinite(modelCoords.lat) ? modelCoords.lat : undefined) ??
+    farmLat ??
+    WEATHER_FALLBACK_LAT ??
+    NaN;
+  const lon =
+    (modelCoords && Number.isFinite(modelCoords.lon) ? modelCoords.lon : undefined) ??
+    farmLon ??
+    WEATHER_FALLBACK_LON ??
+    NaN;
+  const hasCoords = Number.isFinite(lat) && Number.isFinite(lon);
 
   const weatherSWR = useSWR(
-    farmId && hasCoords ? swrKeys.weatherAt(lat!, lon!) : null,
-    () => GetWeatherToday(lat!, lon!),
+    farmId && hasCoords ? swrKeys.weatherAt(lat, lon) : null,
+    () => GetWeatherToday(lat, lon),
     { ...sharedSwrOptions, dedupingInterval: 10 * 60_000 }
   );
-
-  const weather = useMemo((): WeatherDataShape | null => {
-    const w = weatherSWR.data as { data?: WeatherDataShape } | WeatherDataShape | undefined;
-    if (!w) return null;
-    return (w as { data?: WeatherDataShape }).data ?? (w as WeatherDataShape);
-  }, [weatherSWR.data]);
 
   const pageReady =
     !!farmId &&
@@ -258,7 +293,14 @@ export function useFarmDetailData(farmId: string | undefined) {
     farmingStartedAt,
     pendingSoilReceivedAt,
     pendingSoilFeatures,
-    weather,
+    weather: weatherSWR.data ?? null,
+    /** Lat/lon passed to the weather API (pending payload, farm row, then optional env fallback). */
+    weatherCoords: hasCoords ? ({ lat, lon } as const) : null,
+    /** False when no coordinates: weather request is skipped (set EXPO_PUBLIC_WEATHER_FALLBACK_LAT/LON for dev). */
+    hasWeatherCoords: hasCoords,
+    /** Set when the weather request failed (network, 4xx/5xx, or invalid API key on server). */
+    weatherError: weatherSWR.error ?? null,
+    weatherLoading: hasCoords && weatherSWR.isLoading,
     topCrops,
     farmsError,
     isInitialLoading: !!farmId && !pageReady,
