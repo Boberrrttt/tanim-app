@@ -110,7 +110,7 @@ const LoginScreen = () => {
 
                 <View style={styles.inputsContainer}>
                   <View style={styles.inputGroup}>
-                    <Text style={styles.label}>User ID</Text>
+                    <Text style={styles.label}>Username</Text>
                     <View
                       style={[
                         styles.inputWrapper,
