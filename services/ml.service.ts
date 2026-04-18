@@ -3,7 +3,7 @@ import { Platform } from "react-native";
 import { mutate } from "swr";
 
 import { swrKeys } from "@/constants/swr-keys";
-import { isAbortLikeError } from "./api";
+import { applyResponseTimeLogging, isAbortLikeError } from "./api";
 
 function revalidatePendingSoilSWR(): void {
   void mutate(swrKeys.pendingSoil());
@@ -29,6 +29,17 @@ function getMlRoot(): string {
 }
 
 const nativeAdapter: ("fetch" | "xhr")[] = ["fetch", "xhr"];
+
+/** ML host only: same timing logs as main API client. */
+const mlHttp = axios.create({
+  timeout: 0,
+  ...(Platform.OS !== "web" ? { adapter: nativeAdapter } : {}),
+  headers: {
+    "Content-Type": "application/json",
+    "ngrok-skip-browser-warning": "true",
+  },
+});
+applyResponseTimeLogging(mlHttp, "ML");
 
 function mlAxiosConfig(signal?: AbortSignal) {
   return {
@@ -320,7 +331,7 @@ export const getPendingSoil = async (options?: {
 
   try {
     const url = `${getMlRoot()}/pending/soil`;
-    const response = await axios.get<{ status: string; data: PendingSoilSnapshot }>(
+    const response = await mlHttp.get<{ status: string; data: PendingSoilSnapshot }>(
       url,
       mlAxiosConfig(options?.signal)
     );
@@ -344,7 +355,7 @@ export const clearPendingSoil = async (options?: {
   requireMlRoot();
 
   const url = `${getMlRoot()}/pending/soil`;
-  const response = await axios.delete<{
+  const response = await mlHttp.delete<{
     status: string;
     cleared?: boolean;
   }>(url, mlAxiosConfig(options?.signal));
@@ -375,7 +386,7 @@ export const predictFertilizer = async (
 
   try {
     const url = `${getMlRoot()}/predict/fertilizer`;
-    const response = await axios.post<FertilizerPredictResponse>(
+    const response = await mlHttp.post<FertilizerPredictResponse>(
       url,
       body,
       mlAxiosConfig(options?.signal)
@@ -441,7 +452,7 @@ export const predict = async (
 
   try {
     const url = `${getMlRoot()}/predict`;
-    const response = await axios.post(url, payload, {
+    const response = await mlHttp.post(url, payload, {
       ...mlAxiosConfig(),
       timeout: 0,
     });
