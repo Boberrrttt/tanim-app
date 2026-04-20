@@ -52,21 +52,7 @@ const LoginScreen = () => {
           });
         }
 
-        showDialog({
-          title: "Welcome back",
-          message: "You're signed in. Continue to your farms.",
-          variant: "success",
-          buttons: [
-            {
-              label: "Continue",
-              variant: "primary",
-              onPress: (dismiss) => {
-                dismiss();
-                router.push("/(tabs)/farmer" as any);
-              },
-            },
-          ],
-        });
+        router.replace("/(tabs)/farmer" as any);
         return;
       }
     } catch (error: any) {

@@ -760,9 +760,7 @@ export default function FarmDetailsScreen() {
           </View>
           <Text style={styles.sectionDescription}>
             Recommendations use BSWM-style rules: your readings are classified (Low / Medium / High), then
-            matched to this crop’s rate table. The crop calendar below uses only the{' '}
-            <Text style={styles.sectionDescriptionEm}>farming_timeline</Text> object from the fertilizer
-            model response (phases, day ranges, notes). Always follow product labels and local extension
+            matched to this crop’s rate table. Always follow product labels and local extension
             advice.
           </Text>
 
@@ -978,7 +976,6 @@ export default function FarmDetailsScreen() {
             </View>
             <Text style={styles.sectionDescription}>
               Save your current soil readings, selected crop, and fertilizer recommendation to the Tanim API.
-              After that, this farm no longer loads ML `/pending/soil` and keeps using this snapshot.
             </Text>
             <TouchableOpacity
               style={[

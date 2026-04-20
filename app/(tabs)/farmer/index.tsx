@@ -14,12 +14,14 @@ import { Sprout, MapPin, LogOut, ChevronRight } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { getFarms } from '@/services/farm.service';
 import { swrKeys } from '@/constants/swr-keys';
-import { getUserData } from '@/services/token.service';
+import { clearAuthData, getUserData } from '@/services/token.service';
+import { useAppDialog } from '@/contexts/app-dialog-context';
 import { colors, fontFamily, fontSize, radius, shadow, spacing } from '@/constants/design-tokens';
 import { IFarm } from '@/types/farm.types';
 
 const FarmerScreen = () => {
   const router = useRouter();
+  const { showDialog } = useAppDialog();
   const [helloLine, setHelloLine] = useState('Hello, Farmer!');
   const [farmerId, setFarmerId] = useState<string | null>(null);
 
@@ -61,7 +63,27 @@ const FarmerScreen = () => {
   }, []);
 
   const handleLogout = () => {
-    router.push('/login');
+    showDialog({
+      title: 'Sign out?',
+      message: "You'll need to sign in again to access your farms.",
+      variant: 'warning',
+      buttons: [
+        {
+          label: 'Cancel',
+          variant: 'ghost',
+          onPress: (dismiss) => dismiss(),
+        },
+        {
+          label: 'Sign out',
+          variant: 'destructive',
+          onPress: async (dismiss) => {
+            await clearAuthData();
+            dismiss();
+            router.replace('/login');
+          },
+        },
+      ],
+    });
   };
 
   return (
