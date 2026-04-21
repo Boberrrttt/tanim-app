@@ -13,7 +13,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MapPin, LogOut, ChevronRight } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
-import { getFarms } from '@/services/farm.service';
+import {
+  clearOfflineSyncData,
+  fetchFarmsWithOfflinePersist,
+} from '@/services/offline-sync.service';
 import { swrKeys } from '@/constants/swr-keys';
 import { clearAuthData, getUserData } from '@/services/token.service';
 import { useAppDialog } from '@/contexts/app-dialog-context';
@@ -30,11 +33,12 @@ const FarmerScreen = () => {
 
   const { data: farmsPayload, isLoading: farmsListLoading } = useSWR(
     farmerId ? swrKeys.farmsList(farmerId) : null,
-    () => getFarms(farmerId!),
+    () => fetchFarmsWithOfflinePersist(farmerId!),
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: true,
       dedupingInterval: 60_000,
+      keepPreviousData: true,
     }
   );
 
@@ -84,6 +88,7 @@ const FarmerScreen = () => {
           label: 'Sign out',
           variant: 'destructive',
           onPress: async (dismiss) => {
+            await clearOfflineSyncData();
             await clearAuthData();
             dismiss();
             router.replace('/login');

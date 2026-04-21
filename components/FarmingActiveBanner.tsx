@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import useSWR from 'swr';
 import { Sprout } from 'lucide-react-native';
-import { getFarmingSessionsByFarmer } from '@/services/farming-session.service';
+import { fetchFarmingSessionsByFarmerWithOfflinePersist } from '@/services/offline-sync.service';
 import { getUserData } from '@/services/token.service';
 import { swrKeys } from '@/constants/swr-keys';
 import { colors, fontFamily, fontSize, radius, spacing, shadow } from '@/constants/design-tokens';
@@ -28,8 +28,8 @@ export default function FarmingActiveBanner() {
 
   const { data } = useSWR(
     farmerId ? swrKeys.farmingSessionsByFarmer(farmerId) : null,
-    () => getFarmingSessionsByFarmer(farmerId!),
-    { revalidateOnFocus: true, dedupingInterval: 15_000 }
+    () => fetchFarmingSessionsByFarmerWithOfflinePersist(farmerId!),
+    { revalidateOnFocus: true, dedupingInterval: 15_000, keepPreviousData: true }
   );
 
   const sessions = data?.data;

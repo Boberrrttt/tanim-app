@@ -23,9 +23,15 @@ type WeatherApiEnvelope = {
   data?: WeatherDataShape
 }
 
-export const GetWeatherToday = async (lat: number, lon: number): Promise<WeatherDataShape> => {
+export const GetWeatherToday = async (
+  lat: number,
+  lon: number,
+  options?: { signal?: AbortSignal }
+): Promise<WeatherDataShape> => {
   try {
-    const response = await apiClient.get<WeatherApiEnvelope>(`/weather?lat=${lat}&lon=${lon}`)
+    const response = await apiClient.get<WeatherApiEnvelope>(`/weather?lat=${lat}&lon=${lon}`, {
+      signal: options?.signal,
+    })
     const body = response.data
     if (body?.status === "success" && body.data) {
       return body.data

@@ -2,11 +2,12 @@ import axios from "axios";
 import { Platform } from "react-native";
 import { mutate } from "swr";
 
-import { swrKeys } from "@/constants/swr-keys";
 import { applyResponseTimeLogging, isAbortLikeError } from "./api";
 
 function revalidatePendingSoilSWR(): void {
-  void mutate(swrKeys.pendingSoil());
+  void mutate(
+    (key) => Array.isArray(key) && key[0] === "ml" && key[1] === "pending-soil"
+  );
 }
 
 const EXPO_ML_RAW = (process.env.EXPO_PUBLIC_ML_API_URL ?? "").trim();

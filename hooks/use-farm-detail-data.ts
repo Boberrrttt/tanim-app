@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
-import { getFarms } from '@/services/farm.service';
 import {
-  getFarmingSession,
   type FarmingSessionRow,
   type FarmingSessionSoilSnapshot,
 } from '@/services/farming-session.service';
 import { getUserData } from '@/services/token.service';
+import type { PendingSoilResult, PendingSoilSnapshot } from '@/services/ml.service';
 import {
-  getPendingSoil,
-  type PendingSoilSnapshot,
-} from '@/services/ml.service';
-import { GetWeatherToday } from '@/services/weather.service';
+  fetchFarmsWithOfflinePersist,
+  fetchFarmingSessionWithOfflinePersist,
+  fetchPendingSoilWithOfflinePersist,
+  fetchWeatherWithOfflinePersist,
+  loadPersistedPendingSoil,
+  pendingSnapshotAppliesToFarm,
+} from '@/services/offline-sync.service';
 import { swrKeys } from '@/constants/swr-keys';
 import type { IFarm } from '@/types/farm.types';
 import type { ISoilHealth } from '@/types/soil-health.types';
@@ -30,6 +32,8 @@ const sharedSwrOptions = {
   revalidateOnReconnect: true,
   shouldRetryOnError: true,
   errorRetryCount: 2,
+  /** Keep last successful payload visible while revalidating or after transient errors. */
+  keepPreviousData: true,
 } as const;
 
 /** Optional dev/default location when farm + ML pending have no coordinates (Expo public env). */
@@ -121,6 +125,7 @@ function coordsFromPendingSnapshot(
 export function useFarmDetailData(farmId: string | undefined) {
   const [farmerId, setFarmerId] = useState<string | null>(null);
   const [userDemoFarmAccess, setUserDemoFarmAccess] = useState<boolean | null>(null);
+  const [pendingSoilFallback, setPendingSoilFallback] = useState<PendingSoilResult | null>(null);
 
   const isDemoRoute = Boolean(farmId && isDemoFarmId(farmId));
   const demoMode = isDemoRoute && userDemoFarmAccess === true;
@@ -140,9 +145,25 @@ export function useFarmDetailData(farmId: string | undefined) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!farmId || isDemoRoute) {
+      setPendingSoilFallback(null);
+      return;
+    }
+    let cancelled = false;
+    setPendingSoilFallback(null);
+    (async () => {
+      const snap = await loadPersistedPendingSoil(farmId);
+      if (!cancelled && snap?.ok && snap.data) setPendingSoilFallback(snap);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [farmId, isDemoRoute]);
+
   const farmsSWR = useSWR(
     farmId && farmerId && !isDemoRoute ? swrKeys.farmsList(farmerId) : null,
-    () => getFarms(farmerId!),
+    () => fetchFarmsWithOfflinePersist(farmerId!),
     { ...sharedSwrOptions, dedupingInterval: 60_000 }
   );
 
@@ -155,7 +176,7 @@ export function useFarmDetailData(farmId: string | undefined) {
 
   const farmingSessionSWR = useSWR(
     farmId && !isDemoRoute ? swrKeys.farmingSession(farmId) : null,
-    () => getFarmingSession(farmId!),
+    () => fetchFarmingSessionWithOfflinePersist(farmId!),
     { ...sharedSwrOptions, dedupingInterval: 30_000 }
   );
 
@@ -164,12 +185,13 @@ export function useFarmDetailData(farmId: string | undefined) {
 
   /** Fetch whenever a farm is open so `request_payload.lat/lng` can drive weather (even during an active session). */
   const pendingSoilSWR = useSWR(
-    farmId && !isDemoRoute ? swrKeys.pendingSoil() : null,
-    () => getPendingSoil(),
+    farmId && !isDemoRoute ? swrKeys.pendingSoil(farmId) : null,
+    () => fetchPendingSoilWithOfflinePersist(farmId!),
     {
       ...sharedSwrOptions,
       dedupingInterval: 0,
       refreshInterval: farmingSessionActive ? 0 : 20_000,
+      fallbackData: pendingSoilFallback ?? undefined,
     }
   );
 
@@ -204,7 +226,7 @@ export function useFarmDetailData(farmId: string | undefined) {
         };
       }
       const pending = pendingSoilSWR.data;
-      if (!pending?.ok || !pending.data) {
+      if (!pending?.ok || !pending.data || !pendingSnapshotAppliesToFarm(pending.data, farmId)) {
         return {
           soilHealthForDisplay: null,
           soilHealthFromPending: false,
@@ -228,27 +250,29 @@ export function useFarmDetailData(farmId: string | undefined) {
       }));
     }
     const r = pendingSoilSWR.data;
-    if (!r?.ok || !r.data) return [];
+    if (!r?.ok || !r.data || !pendingSnapshotAppliesToFarm(r.data, farmId)) return [];
     const top = r.data.probabilities_top_3 ?? [];
     return top.map(({ crop_class, probability }) => ({
       crop_class,
       probability,
     }));
-  }, [demoAccessDenied, demoMode, farmingSessionActive, sessionRow, pendingSoilSWR.data]);
+  }, [demoAccessDenied, demoMode, farmingSessionActive, sessionRow, pendingSoilSWR.data, farmId]);
 
   /** Raw ML `features` from pending soil (for API soil_health_test on start farming). */
   const pendingSoilFeatures = useMemo((): number[] | undefined => {
+    if (!farmId) return undefined;
     if (demoAccessDenied) return undefined;
     if (demoMode) return DEMO_SOIL_FEATURES;
     if (farmingSessionActive) return undefined;
     const r = pendingSoilSWR.data;
-    if (!r?.ok || !r.data) return undefined;
+    if (!r?.ok || !r.data || !pendingSnapshotAppliesToFarm(r.data, farmId)) return undefined;
     const f = r.data.features;
     if (!Array.isArray(f) || f.length < 6) return undefined;
     return f.map((x) => Number(x));
-  }, [demoAccessDenied, demoMode, farmingSessionActive, pendingSoilSWR.data]);
+  }, [demoAccessDenied, demoMode, farmingSessionActive, pendingSoilSWR.data, farmId]);
 
   const pendingSoilReceivedAt = useMemo((): string | null => {
+    if (!farmId) return null;
     if (demoAccessDenied) return null;
     if (demoMode) return new Date().toISOString();
     if (farmingSessionActive && sessionRow?.soil_snapshot?.received_at) {
@@ -256,9 +280,9 @@ export function useFarmDetailData(farmId: string | undefined) {
     }
     if (farmingSessionActive) return null;
     const r = pendingSoilSWR.data;
-    if (!r?.ok || !r.data?.received_at) return null;
+    if (!r?.ok || !r.data?.received_at || !pendingSnapshotAppliesToFarm(r.data, farmId)) return null;
     return r.data.received_at;
-  }, [demoAccessDenied, demoMode, farmingSessionActive, sessionRow, pendingSoilSWR.data]);
+  }, [demoAccessDenied, demoMode, farmingSessionActive, sessionRow, pendingSoilSWR.data, farmId]);
 
   const pinnedFertilizerData: FertilizerPredictData | null = useMemo(() => {
     if (!farmingSessionActive || !sessionRow?.fertilizer_recommendation) return null;
@@ -301,8 +325,8 @@ export function useFarmDetailData(farmId: string | undefined) {
   const hasCoords = Number.isFinite(lat) && Number.isFinite(lon);
 
   const weatherSWR = useSWR(
-    farmId && hasCoords && !demoMode ? swrKeys.weatherAt(lat, lon) : null,
-    () => GetWeatherToday(lat, lon),
+    farmId && hasCoords && !demoMode ? swrKeys.weatherForFarm(farmId, lat, lon) : null,
+    () => fetchWeatherWithOfflinePersist(farmId!, lat, lon),
     { ...sharedSwrOptions, dedupingInterval: 10 * 60_000 }
   );
 
