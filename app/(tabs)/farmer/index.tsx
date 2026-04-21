@@ -8,9 +8,10 @@ import {
   ScrollView,
   ActivityIndicator,
   Platform,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Sprout, MapPin, LogOut, ChevronRight } from 'lucide-react-native';
+import { MapPin, LogOut, ChevronRight } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { getFarms } from '@/services/farm.service';
 import { swrKeys } from '@/constants/swr-keys';
@@ -18,12 +19,14 @@ import { clearAuthData, getUserData } from '@/services/token.service';
 import { useAppDialog } from '@/contexts/app-dialog-context';
 import { colors, fontFamily, fontSize, radius, shadow, spacing } from '@/constants/design-tokens';
 import { IFarm } from '@/types/farm.types';
+import { DEMO_FARM, DEMO_FARM_BADGE, DEMO_FARM_ID } from '@/constants/demo-farm';
 
 const FarmerScreen = () => {
   const router = useRouter();
   const { showDialog } = useAppDialog();
   const [helloLine, setHelloLine] = useState('Hello, Farmer!');
   const [farmerId, setFarmerId] = useState<string | null>(null);
+  const [showDemoFarm, setShowDemoFarm] = useState(false);
 
   const { data: farmsPayload, isLoading: farmsListLoading } = useSWR(
     farmerId ? swrKeys.farmsList(farmerId) : null,
@@ -35,7 +38,10 @@ const FarmerScreen = () => {
     }
   );
 
-  const farms: IFarm[] = farmsPayload?.data ?? [];
+  const apiFarms: IFarm[] = farmsPayload?.data ?? [];
+  const farms: IFarm[] = showDemoFarm
+    ? [DEMO_FARM, ...apiFarms.filter((f) => f.farm_id !== DEMO_FARM_ID)]
+    : apiFarms;
   const loading =
     farmerId === null || (farmsListLoading && farmsPayload === undefined);
 
@@ -46,6 +52,7 @@ const FarmerScreen = () => {
         const user = await getUserData();
         if (cancelled) return;
         setFarmerId(user?.farmer_id ?? null);
+        setShowDemoFarm(user?.demoFarmAccess === true);
         const first = user?.first_name?.trim() ?? '';
         const last = user?.last_name?.trim() ?? '';
         const full = [first, last].filter(Boolean).join(' ');
@@ -91,7 +98,12 @@ const FarmerScreen = () => {
       <View style={styles.pageHeader}>
         <View style={styles.pageHeaderInner}>
           <View style={styles.headerBrand}>
-            <Sprout size={28} color={colors.primary} strokeWidth={2.2} />
+            <Image
+              source={require('@/assets/images/logo.png')}
+              style={styles.heroLogo}
+              resizeMode="contain"
+              accessibilityLabel="Tanim logo"
+            />
             <View style={styles.headerText}>
               <Text style={styles.headerTitle} numberOfLines={1}>
                 Tanim
@@ -133,29 +145,34 @@ const FarmerScreen = () => {
             <Text style={styles.emptyText}>No farms yet. Add a farm to start.</Text>
           </View>
         ) : (
-          farms.map((farm: IFarm) => (
-            <TouchableOpacity
-              key={farm.farm_id}
-              style={styles.farmRow}
-              onPress={() =>
-                router.push(`/farmer/${farm.farm_id}` as import('expo-router').Href)
-              }
-              activeOpacity={0.92}
-            >
-              <View style={styles.farmRowLeft}>
-                <View style={styles.iconWell}>
-                  <MapPin size={28} color={colors.primary} strokeWidth={2} />
+          farms.map((farm: IFarm) => {
+            const isDemo = farm.farm_id === DEMO_FARM_ID;
+            return (
+              <TouchableOpacity
+                key={farm.farm_id}
+                style={styles.farmRow}
+                onPress={() =>
+                  router.push(`/farmer/${farm.farm_id}` as import('expo-router').Href)
+                }
+                activeOpacity={0.92}
+              >
+                <View style={styles.farmRowLeft}>
+                  <View style={styles.iconWell}>
+                    <MapPin size={28} color={colors.primary} strokeWidth={2} />
+                  </View>
+                  <View style={styles.farmRowText}>
+                    <Text style={styles.farmName}>{farm.farm_name}</Text>
+                    <Text style={styles.farmHint}>
+                      {isDemo
+                        ? DEMO_FARM_BADGE
+                        : `${farm.farm_measurement} hectares · Tap to view details`}
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.farmRowText}>
-                  <Text style={styles.farmName}>{farm.farm_name}</Text>
-                  <Text style={styles.farmHint}>
-                    {farm.farm_measurement} hectares · Tap to view details
-                  </Text>
-                </View>
-              </View>
-              <ChevronRight size={24} color={colors.mutedForeground} strokeWidth={2} />
-            </TouchableOpacity>
-          ))
+                <ChevronRight size={24} color={colors.mutedForeground} strokeWidth={2} />
+              </TouchableOpacity>
+            );
+          })
         )}
       </ScrollView>
     </SafeAreaView>
@@ -302,6 +319,10 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.medium,
     color: colors.mutedForeground,
     textAlign: 'center',
+  },
+  heroLogo: {
+    width: 28,
+    height: 28,
   },
 });
 

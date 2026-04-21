@@ -38,6 +38,7 @@ import { useAppDialog } from '@/contexts/app-dialog-context';
 import { fontFamily, fontSize, radius, colors, spacing, shadow } from '@/constants/design-tokens';
 import FarmingTimeline from '@/components/FarmingTimeline';
 import { getCurrentCycleDay, getCycleEndDate } from '@/constants/crop-cycle';
+import { getDemoFertilizerForCrop, isDemoFarmId } from '@/constants/demo-farm';
 
 const kelvinToCelsius = (kelvin: number) => Math.round(kelvin - 273.15);
 
@@ -84,17 +85,17 @@ const getWeatherRecommendation = (
 ) => {
   const desc = description?.toLowerCase();
   if (desc?.includes('rain')) {
-    return 'Rain expected. Postpone irrigation and fertilizer application. Good time for transplanting seedlings.';
+    return 'Rain is on the way. Hold off on watering and applying fertilizer until it passes. Good weather for moving seedlings.';
   } else if (tempCelsius > 35) {
-    return 'High temperature warning. Increase irrigation frequency and provide shade for sensitive crops.';
+    return 'Very hot. Water more often and give tender crops some shade if you can.';
   } else if (tempCelsius < 20) {
-    return 'Cool weather. Ideal for leafy vegetables. Reduce watering and watch for frost.';
+    return 'Cool day. Leafy crops do well. Ease up on watering and watch for cold nights.';
   } else if (humidity > 80) {
-    return 'High humidity. Monitor crops for fungal diseases. Ensure good air circulation.';
+    return 'Air is very damp. Watch for mold and leaf diseases; trim or space plants for airflow.';
   } else if (desc?.includes('clear') && tempCelsius >= 25 && tempCelsius <= 32) {
-    return 'Perfect farming conditions! Ideal for planting, weeding, and harvesting activities.';
+    return 'Nice day for the field—good for planting, weeding, or harvest.';
   } else {
-    return 'Moderate conditions. Continue regular farm maintenance and monitoring.';
+    return 'Fair weather. Keep up your usual checks and field work.';
   }
 };
 
@@ -182,6 +183,8 @@ export default function FarmDetailsScreen() {
     topCrops,
     farmsError,
     isInitialLoading,
+    demoMode,
+    demoAccessDenied,
     mutate: farmDetailMutate,
   } = useFarmDetailData(id);
 
@@ -210,6 +213,19 @@ export default function FarmDetailsScreen() {
       return;
     }
 
+    if (isDemoFarmId(id)) {
+      if (!demoMode) {
+        setFertilizerData(null);
+        setFertilizerLoading(false);
+        return;
+      }
+      setFertilizerLoading(false);
+      const d = getDemoFertilizerForCrop(selectedCrop);
+      setFertilizerData(d);
+      setFertilizerError(null);
+      return;
+    }
+
     const controller = new AbortController();
     let cancelled = false;
 
@@ -232,7 +248,7 @@ export default function FarmDetailsScreen() {
         if (cancelled) return;
         if (res.status !== 'success' || !res.data) {
           setFertilizerData(null);
-          setFertilizerError(res.message ?? 'Fertilizer recommendation failed.');
+          setFertilizerError(res.message ?? 'Could not get fertilizer suggestions.');
           return;
         }
         setFertilizerData(res.data);
@@ -240,7 +256,7 @@ export default function FarmDetailsScreen() {
         if (cancelled || isAbortLikeError(e)) return;
         const ax = e as { message?: string };
         setFertilizerData(null);
-        setFertilizerError(ax?.message ?? 'Could not load fertilizer recommendation.');
+        setFertilizerError(ax?.message ?? 'Could not load fertilizer suggestions.');
       } finally {
         if (!cancelled) setFertilizerLoading(false);
       }
@@ -257,6 +273,7 @@ export default function FarmDetailsScreen() {
     soilHealthForDisplay,
     id,
     pendingSoilReceivedAt,
+    demoMode,
   ]);
 
   const onStartFarming = useCallback(async () => {
@@ -268,6 +285,15 @@ export default function FarmDetailsScreen() {
       !fertilizerData ||
       farmingSessionActive
     ) {
+      return;
+    }
+    if (demoMode) {
+      showDialog({
+        title: 'Demo farm',
+        message:
+          'This farm uses sample data on your phone only. Nothing is sent to the server. Use your real farms to save a plan.',
+        variant: 'success',
+      });
       return;
     }
     setStartFarmingSaving(true);
@@ -313,7 +339,7 @@ export default function FarmDetailsScreen() {
       });
       if (res.status !== 'success' || !res.data) {
         showDialog({
-          title: 'Could not start farming',
+          title: 'Could not save your plan',
           message:
             typeof res.message === 'string' ? res.message : 'Please try again.',
           variant: 'error',
@@ -324,9 +350,9 @@ export default function FarmDetailsScreen() {
       await mutate(swrKeys.farmingSessionsByFarmer(farmerId));
       await farmDetailMutate.farms();
       showDialog({
-        title: 'Farming started',
+        title: 'Plan saved',
         message:
-          'Soil, crop, and fertilizer plan are saved on the server. This farm will keep using this snapshot.',
+          'Your soil readings, crop choice, and fertilizer plan are saved. This farm will use this plan until you end the session.',
         variant: 'success',
       });
     } catch (e: unknown) {
@@ -339,9 +365,9 @@ export default function FarmDetailsScreen() {
         d?.message ??
         d?.detail?.message ??
         ax?.message ??
-        'Network or server error.';
+        'Connection problem. Try again.';
       showDialog({
-        title: 'Could not start farming',
+        title: 'Could not save your plan',
         message: msg,
         variant: 'error',
       });
@@ -366,16 +392,16 @@ export default function FarmDetailsScreen() {
   ]);
 
   const onCancelFarming = useCallback(() => {
-    if (!id || !farmerId || !farmingSessionActive) return;
+    if (!id || !farmerId || !farmingSessionActive || demoMode) return;
     showDialog({
-      title: 'End farming?',
+      title: 'End this farming session?',
       message:
-        'This ends the active farming session. Your snapshot stays on the server for history; this farm will use live ML readings again when you are not in an active session.',
+        'Your saved plan stays in your history. After this, this farm will go back to using fresh soil readings from your sensor when available.',
       variant: 'warning',
       buttons: [
-        { label: 'Keep farming', variant: 'ghost', onPress: (d) => d() },
+        { label: 'Keep going', variant: 'ghost', onPress: (d) => d() },
         {
-          label: 'End farming',
+          label: 'End session',
           variant: 'destructive',
           onPress: (d) => {
             d();
@@ -384,14 +410,14 @@ export default function FarmDetailsScreen() {
               try {
                 const res = await cancelFarmingSession(id, farmerId);
                 if (res.status !== 'success') {
-                  showDialog({
-                    title: 'Could not end farming',
-                    message:
-                      typeof res.message === 'string'
-                        ? res.message
-                        : 'Please try again.',
-                    variant: 'error',
-                  });
+                showDialog({
+                  title: 'Could not end the session',
+                  message:
+                    typeof res.message === 'string'
+                      ? res.message
+                      : 'Please try again.',
+                  variant: 'error',
+                });
                   return;
                 }
                 await farmDetailMutate.farmingSession();
@@ -399,10 +425,10 @@ export default function FarmDetailsScreen() {
                 await farmDetailMutate.pendingSoil();
                 setSelectedCrop(null);
                 showDialog({
-                  title: 'Farming ended',
+                  title: 'Session ended',
                   message: res.data?.ended ?? res.data?.removed
-                    ? 'Session marked ended. This farm will use live ML readings again when available.'
-                    : 'No active session was stored for this farm.',
+                    ? 'This farm will use new soil readings from your sensor again when they are available.'
+                    : 'There was no active session saved for this farm.',
                   variant: 'success',
                 });
               } catch (e: unknown) {
@@ -415,9 +441,9 @@ export default function FarmDetailsScreen() {
                   dat?.message ??
                   dat?.detail?.message ??
                   ax?.message ??
-                  'Network or server error.';
+                  'Connection problem. Try again.';
                 showDialog({
-                  title: 'Could not end farming',
+                  title: 'Could not end the session',
                   message: msg,
                   variant: 'error',
                 });
@@ -432,14 +458,14 @@ export default function FarmDetailsScreen() {
   }, [id, farmerId, farmingSessionActive, farmDetailMutate, showDialog]);
 
   useEffect(() => {
-    if (!farmsError || isAbortLikeError(farmsError)) return;
+    if (isDemoFarmId(id) || !farmsError || isAbortLikeError(farmsError)) return;
     console.error('Error loading farm details:', farmsError);
     showDialog({
-      title: 'Could not load farm',
-      message: 'Farm details could not be loaded. Check your connection and try again.',
+      title: 'Could not open this farm',
+      message: 'Check your internet connection and try again.',
       variant: 'error',
     });
-  }, [farmsError, showDialog]);
+  }, [id, farmsError, showDialog]);
 
   if (!id || isInitialLoading) {
     return (
@@ -456,7 +482,33 @@ export default function FarmDetailsScreen() {
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading farm details...</Text>
+          <Text style={styles.loadingText}>Loading your farm…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (demoAccessDenied) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.topBar}>
+          <TouchableOpacity
+            style={styles.backIconButton}
+            onPress={() => router.back()}
+            activeOpacity={0.7}
+            accessibilityLabel="Back"
+          >
+            <ArrowLeft size={22} color={colors.primary} strokeWidth={2.5} />
+          </TouchableOpacity>
+        </View>
+        <View style={styles.loadingContainer}>
+          <Info size={40} color={colors.mutedForeground} strokeWidth={2} />
+          <Text style={styles.loadingText}>Demo farm not available</Text>
+          <Text style={[styles.sectionDescription, { textAlign: 'center', paddingHorizontal: spacing.lg }]}>
+            The offline demo farm is only for the demo account. Sign out and sign in with username{' '}
+            <Text style={styles.sectionDescriptionEm}>farmer</Text> and password{' '}
+            <Text style={styles.sectionDescriptionEm}>123456</Text> to try it.
+          </Text>
         </View>
       </SafeAreaView>
     );
@@ -490,19 +542,33 @@ export default function FarmDetailsScreen() {
           <MapPin size={24} color={colors.primary} strokeWidth={2} />
           <View style={styles.farmCalloutText}>
             <Text style={styles.farmCalloutTitle}>{farm?.farm_name ?? 'Farm Details'}</Text>
-            <Text style={styles.farmCalloutMeta}>{farm?.farm_measurement} hectares</Text>
+            <Text style={styles.farmCalloutMeta}>
+              {demoMode ? 'Demo · offline sample data' : `${farm?.farm_measurement} hectares`}
+            </Text>
           </View>
         </View>
+
+        {demoMode ? (
+          <View style={styles.demoBanner} accessibilityRole="summary">
+            <Info size={22} color={colors.primary} strokeWidth={2} />
+            <View style={styles.demoBannerText}>
+              <Text style={styles.demoBannerTitle}>Demo farm</Text>
+              <Text style={styles.demoBannerBody}>
+                Soil, weather, crops, and fertilizer below are sample data on this device. No network
+                calls are made for this screen.
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         {farmingSessionActive && farmingStartedAt ? (
           <View style={styles.pinnedFarmBanner}>
             <Sprout size={20} color={colors.primary} strokeWidth={2} />
             <View style={styles.pinnedFarmBannerText}>
-              <Text style={styles.pinnedFarmBannerTitle}>Farming in progress</Text>
+              <Text style={styles.pinnedFarmBannerTitle}>Farming session active</Text>
               <Text style={styles.pinnedFarmBannerBody}>
-                This farm uses your saved soil, crop, and fertilizer plan from{' '}
-                {new Date(farmingStartedAt).toLocaleString()}. ML pending soil is not polled for this
-                farm anymore.
+                You started this plan on {new Date(farmingStartedAt).toLocaleString()}. The app keeps
+                using those saved soil and crop numbers for this farm instead of new sensor readings.
               </Text>
             </View>
           </View>
@@ -512,11 +578,11 @@ export default function FarmDetailsScreen() {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Ban size={26} color={colors.destructive} strokeWidth={2} />
-              <Text style={styles.sectionTitle}>Cancel farming</Text>
+              <Text style={styles.sectionTitle}>End farming session</Text>
             </View>
             <Text style={styles.sectionDescription}>
-              End the saved session for this farm. ML pending soil will be used again for readings when
-              available.
+              Stop using the saved plan for this farm. New soil readings from your sensor will show up
+              here again when available.
             </Text>
             <TouchableOpacity
               style={[
@@ -526,14 +592,14 @@ export default function FarmDetailsScreen() {
               disabled={cancelFarmingSaving}
               onPress={onCancelFarming}
               activeOpacity={0.85}
-              accessibilityLabel="End farming for this farm"
+              accessibilityLabel="End farming session for this farm"
             >
               {cancelFarmingSaving ? (
                 <ActivityIndicator color={colors.destructive} />
               ) : (
                 <>
                   <Ban size={20} color={colors.destructive} strokeWidth={2.2} />
-                  <Text style={styles.cancelFarmingButtonText}>End farming for this farm</Text>
+                  <Text style={styles.cancelFarmingButtonText}>End session for this farm</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -544,20 +610,25 @@ export default function FarmDetailsScreen() {
         <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <ChartLine size={26} color={colors.primary} strokeWidth={2} />
-              <Text style={styles.sectionTitle}>🧪 Soil Health</Text>
+              <Text style={styles.sectionTitle}>🧪 Soil health</Text>
           </View>
 
-          {soilHealthFromFarmingSession ? (
+          {demoMode ? (
             <Text style={styles.soilPendingNote}>
-              Values from your saved farming session (tanim-api). They match the soil snapshot taken when
-              you pressed Start farming — not live ML pending readings.
+              Sample soil values for this demo—same numbers every time, not from a sensor or server.
             </Text>
           ) : null}
-          {soilHealthFromPending ? (
+          {!demoMode && soilHealthFromFarmingSession ? (
             <Text style={styles.soilPendingNote}>
-              Values from your ML service (GET /pending/soil): global latest reading from /predict, not
-              tanim-api. Open farm uses this for cards and fertilizer; N, P, K, salinity, pH, moisture,
-              temperature match the model feature vector.
+              These numbers are from when you saved your plan. They stay the same until you end this
+              farming session—not from live sensor checks right now.
+            </Text>
+          ) : null}
+          {!demoMode && soilHealthFromPending ? (
+            <Text style={styles.soilPendingNote}>
+              These numbers come from your latest soil sensor reading. They feed the cards below and your
+              fertilizer suggestions (nitrogen, phosphorus, potassium, salt level, pH, moisture, and
+              temperature).
             </Text>
           ) : null}
 
@@ -632,7 +703,7 @@ export default function FarmDetailsScreen() {
           ) : (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyText}>
-                No soil health test yet. Complete a soil health test for this farm to see recommendations.
+                No soil data yet. Run a soil test for this farm to see readings and tips here.
               </Text>
             </View>
           )}
@@ -642,7 +713,7 @@ export default function FarmDetailsScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Umbrella size={26} color={colors.primary} strokeWidth={2} />
-            <Text style={styles.sectionTitle}>🌤️ Weather Today</Text>
+            <Text style={styles.sectionTitle}>🌤️ Today’s weather</Text>
           </View>
           <Text style={styles.weatherDate}>{todayIs}</Text>
 
@@ -671,7 +742,7 @@ export default function FarmDetailsScreen() {
               <View style={styles.weatherRecommendation}>
                 <View style={styles.recommendationHeader}>
                   <BrainCircuit size={22} color={colors.primary} strokeWidth={2} />
-                  <Text style={styles.recommendationTitle}>What to do today</Text>
+                  <Text style={styles.recommendationTitle}>Ideas for today</Text>
                 </View>
                 <Text style={styles.recommendationText}>
                   {getWeatherRecommendation(
@@ -685,14 +756,14 @@ export default function FarmDetailsScreen() {
           ) : weatherLoading ? (
             <View style={styles.weatherCard}>
               <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={[styles.weatherCondition, { marginTop: spacing.sm }]}>Loading weather…</Text>
+                <Text style={[styles.weatherCondition, { marginTop: spacing.sm }]}>Getting weather…</Text>
             </View>
           ) : (
             <View style={styles.weatherCard}>
               <Text style={styles.weatherEmoji}>⛅</Text>
               <View style={styles.weatherTemp}>
                 <Text style={styles.tempValue}>--</Text>
-                <Text style={styles.weatherCondition}>Weather unavailable</Text>
+                <Text style={styles.weatherCondition}>Weather not available</Text>
               </View>
             </View>
           )}
@@ -702,11 +773,11 @@ export default function FarmDetailsScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <ChartLine size={26} color={colors.primary} strokeWidth={2} />
-            <Text style={styles.sectionTitle}>🌾 Top Crop Suggestions</Text>
+            <Text style={styles.sectionTitle}>🌾 Suggested crops</Text>
           </View>
           <Text style={styles.sectionDescription}>
-            Choose a crop to get N–P₂O₅–K₂O rates and commercial fertilizer options from your latest soil
-            test (N, P, K, pH) and the selected crop.
+            Tap a crop to see fertilizer amounts (nitrogen, phosphate, potash) and product options based
+            on your latest soil test and that crop.
           </Text>
 
           {hasCropSuggestion ? (
@@ -736,7 +807,7 @@ export default function FarmDetailsScreen() {
                     </Text>
                   </View>
                   <Text style={styles.cropProbability}>
-                    {Math.round(crop.probability * 100)}% match
+                    {Math.round(crop.probability * 100)}% fit
                   </Text>
                 </TouchableOpacity>
               );
@@ -744,7 +815,7 @@ export default function FarmDetailsScreen() {
           ) : (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyText}>
-                Complete a soil health test for this farm to see crop recommendations.
+                Run a soil test for this farm to see which crops fit this land best.
               </Text>
             </View>
           )}
@@ -759,46 +830,45 @@ export default function FarmDetailsScreen() {
             </Text>
           </View>
           <Text style={styles.sectionDescription}>
-            Recommendations use BSWM-style rules: your readings are classified (Low / Medium / High), then
-            matched to this crop’s rate table. Always follow product labels and local extension
-            advice.
+            We rate your soil as low, medium, or high for each nutrient, then suggest amounts for this
+            crop. Always follow the bag label and your local agriculture office.
           </Text>
 
           {!selectedCrop ? (
             <View style={styles.fertilizerEmptyCard}>
               <FlaskConical size={28} color={colors.mutedForeground} strokeWidth={2} />
-              <Text style={styles.fertilizerEmptyTitle}>Select a crop first</Text>
+              <Text style={styles.fertilizerEmptyTitle}>Pick a crop first</Text>
               <Text style={styles.fertilizerEmptyBody}>
-                Tap one of the top crop suggestions. We’ll send your soil N, P, K, pH and that crop to the
-                ML service for a full recommendation.
+                Choose one of the suggested crops above. We’ll use your soil numbers and that crop to build
+                a fertilizer plan.
               </Text>
             </View>
           ) : !soilHealthForDisplay ? (
             <View style={styles.fertilizerEmptyCard}>
               <FlaskConical size={28} color={colors.mutedForeground} strokeWidth={2} />
-              <Text style={styles.fertilizerEmptyTitle}>Soil data needed</Text>
+              <Text style={styles.fertilizerEmptyTitle}>Need soil numbers</Text>
               <Text style={styles.fertilizerEmptyBody}>
-                Add or update a soil health test for this farm. N, P, K, and pH from your latest reading are
-                required for fertilizer rates.
+                Add or refresh a soil test for this farm. We need nitrogen, phosphorus, potassium, and pH
+                from your latest reading to suggest rates.
               </Text>
             </View>
           ) : fertilizerLoading ? (
             <View style={styles.fertilizerLoadingBlock}>
               <ActivityIndicator size="small" color={colors.primary} />
               <View style={styles.fertilizerLoadingCopy}>
-                <Text style={styles.fertilizerLoadingTitle}>Analyzing your soil…</Text>
+                <Text style={styles.fertilizerLoadingTitle}>Working on your plan…</Text>
                 <Text style={styles.fertilizerLoadingSub}>
-                  Matching {selectedCrop} with your latest readings.
+                  Pairing {selectedCrop} with your latest soil readings.
                 </Text>
               </View>
             </View>
           ) : fertilizerError ? (
             <View style={styles.fertilizerEmptyCard}>
               <Info size={28} color={colors.warning} strokeWidth={2} />
-              <Text style={styles.fertilizerEmptyTitle}>Couldn’t load a suggestion</Text>
+              <Text style={styles.fertilizerEmptyTitle}>Couldn’t load suggestions</Text>
               <Text style={styles.fertilizerEmptyBody}>{fertilizerError}</Text>
               <Text style={styles.fertilizerEmptyHint}>
-                Check your connection and ML service settings, then try selecting the crop again.
+                Check your internet connection, then tap the crop again.
               </Text>
             </View>
           ) : fertilizerData ? (
@@ -809,11 +879,10 @@ export default function FarmDetailsScreen() {
                   return (
                     <View style={[styles.fertilizerEmptyCard, styles.timelineWrap]}>
                       <Info size={28} color={colors.mutedForeground} strokeWidth={2} />
-                      <Text style={styles.fertilizerEmptyTitle}>No crop calendar in response</Text>
+                      <Text style={styles.fertilizerEmptyTitle}>No growing calendar in the answer</Text>
                       <Text style={styles.fertilizerEmptyBody}>
-                        The fertilizer model did not return a usable{' '}
-                        <Text style={styles.sectionDescriptionEm}>farming_timeline</Text> (phases and
-                        total_days). Update the model service or try again.
+                        The app didn’t get a clear day-by-day schedule for this crop. Try again later, or
+                        ask your support contact if it keeps happening.
                       </Text>
                     </View>
                   );
@@ -826,9 +895,10 @@ export default function FarmDetailsScreen() {
                   return (
                     <View style={[styles.fertilizerEmptyCard, styles.timelineWrap]}>
                       <Info size={28} color={colors.warning} strokeWidth={2} />
-                      <Text style={styles.fertilizerEmptyTitle}>Invalid cycle start date</Text>
+                      <Text style={styles.fertilizerEmptyTitle}>Problem with the start date</Text>
                       <Text style={styles.fertilizerEmptyBody}>
-                        Could not parse Day 1 ({ymd}). Check cycle_start_date from the session or model.
+                        Day 1 of the crop calendar ({ymd}) could not be read. Try starting the session
+                        again or contact support if this repeats.
                       </Text>
                     </View>
                   );
@@ -842,8 +912,8 @@ export default function FarmDetailsScreen() {
                   description: p.description,
                 }));
                 const footnote = farmingSessionCycleStartYmd
-                  ? `From model: template_id “${ft.template_id}”, ${ft.total_days}-day cycle. Day 1 = ${ymd} (when farming started).`
-                  : `From model: template_id “${ft.template_id}”, ${ft.total_days}-day cycle. Day 1 = ${ymd} (preview uses today until you start farming).`;
+                  ? `${ft.total_days}-day crop calendar. Day 1 is ${ymd} (when you saved your plan).`
+                  : `${ft.total_days}-day crop calendar. Day 1 is ${ymd} for preview until you save your plan.`;
                 return (
                   <View style={styles.timelineWrap}>
                     <FarmingTimeline
@@ -873,7 +943,7 @@ export default function FarmDetailsScreen() {
 
               <Text style={styles.fertSectionHeading}>Soil nutrient levels</Text>
               <Text style={styles.fertSectionHint}>
-                Classified from your N, P, and K readings (Low / Medium / High).
+                Shown as low, medium, or high from your nitrogen, phosphorus, and potassium tests.
               </Text>
               <View style={styles.fertNpkRow}>
                 {(
@@ -898,7 +968,7 @@ export default function FarmDetailsScreen() {
 
               <View style={styles.fertSummaryCard}>
                 <View style={styles.fertRow}>
-                  <Text style={styles.fertRowLabel}>Recommended N–P₂O₅–K₂O (kg/ha)</Text>
+                  <Text style={styles.fertRowLabel}>Recommended N–P–K (kg per hectare)</Text>
                   <Text style={styles.fertRowValueEm}>
                     {fertilizerData.fertilizer_recommendation_rate}
                   </Text>
@@ -933,7 +1003,7 @@ export default function FarmDetailsScreen() {
               ))}
 
               <View style={styles.fertOptionCard}>
-                <Text style={styles.fertOptionTitle}>Mode of application</Text>
+                <Text style={styles.fertOptionTitle}>How to apply</Text>
                 <Text style={styles.fertModePhase}>First application</Text>
                 <Text style={styles.fertModeBody}>
                   {fertilizerData.mode_of_application.first_application}
@@ -951,18 +1021,18 @@ export default function FarmDetailsScreen() {
               <View style={styles.fertilizerDisclaimer}>
                 <Info size={16} color={colors.mutedForeground} strokeWidth={2} />
                 <Text style={styles.fertilizerDisclaimerText}>
-                  Decision support only. Confirm soil needs with a lab or agronomist before buying or
-                  applying fertilizer.
+                  This is guidance only. Double-check with a soil lab or crop adviser before you buy or
+                  spread fertilizer.
                 </Text>
               </View>
             </>
           ) : (
             <View style={styles.fertilizerEmptyCard}>
               <FlaskConical size={28} color={colors.mutedForeground} strokeWidth={2} />
-              <Text style={styles.fertilizerEmptyTitle}>No result yet</Text>
+              <Text style={styles.fertilizerEmptyTitle}>Nothing to show yet</Text>
               <Text style={styles.fertilizerEmptyBody}>
-                Try tapping your crop again in a moment. If this keeps happening, the model may be
-                temporarily unavailable.
+                Tap your crop again in a moment. If it keeps failing, the service may be busy—try again
+                later.
               </Text>
             </View>
           )}
@@ -972,10 +1042,11 @@ export default function FarmDetailsScreen() {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Play size={26} color={colors.primary} strokeWidth={2} />
-              <Text style={styles.sectionTitle}>Start farming</Text>
+              <Text style={styles.sectionTitle}>Save your plan</Text>
             </View>
             <Text style={styles.sectionDescription}>
-              Save your current soil readings, selected crop, and fertilizer recommendation to the Tanim API.
+              Save your soil readings, chosen crop, and fertilizer plan to your account so this farm can
+              follow it.
             </Text>
             <TouchableOpacity
               style={[
@@ -991,15 +1062,15 @@ export default function FarmDetailsScreen() {
               ) : (
                 <>
                   <Play size={20} color={colors.primaryForeground} strokeWidth={2.2} />
-                  <Text style={styles.startFarmingButtonText}>Save plan & start farming</Text>
+                  <Text style={styles.startFarmingButtonText}>Save plan & start session</Text>
                 </>
               )}
             </TouchableOpacity>
             {!farmerId ? (
-              <Text style={styles.startFarmingHint}>Farmer account required to save to the server.</Text>
+              <Text style={styles.startFarmingHint}>Sign in as a farmer to save your plan.</Text>
             ) : !canStartFarming ? (
               <Text style={styles.startFarmingHint}>
-                Select a crop and wait for the fertilizer recommendation to load.
+                Pick a crop above and wait until fertilizer suggestions appear.
               </Text>
             ) : null}
           </View>
@@ -1051,6 +1122,31 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontFamily: fontFamily.medium,
     color: colors.mutedForeground,
+  },
+  demoBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+    backgroundColor: colors.infoLight,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  demoBannerText: {
+    flex: 1,
+    gap: 4,
+  },
+  demoBannerTitle: {
+    fontSize: fontSize.md,
+    fontFamily: fontFamily.bold,
+    color: colors.foreground,
+  },
+  demoBannerBody: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.regular,
+    color: colors.mutedForeground,
+    lineHeight: 20,
   },
   pinnedFarmBanner: {
     flexDirection: 'row',

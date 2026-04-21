@@ -16,6 +16,14 @@ import { swrKeys } from '@/constants/swr-keys';
 import type { IFarm } from '@/types/farm.types';
 import type { ISoilHealth } from '@/types/soil-health.types';
 import { normalizeFertilizerPredictData, type FertilizerPredictData } from '@/services/ml.service';
+import {
+  DEMO_FARM,
+  DEMO_SOIL,
+  DEMO_TOP_CROPS,
+  DEMO_WEATHER,
+  DEMO_SOIL_FEATURES,
+  isDemoFarmId,
+} from '@/constants/demo-farm';
 
 const sharedSwrOptions = {
   revalidateOnFocus: false,
@@ -112,12 +120,20 @@ function coordsFromPendingSnapshot(
  */
 export function useFarmDetailData(farmId: string | undefined) {
   const [farmerId, setFarmerId] = useState<string | null>(null);
+  const [userDemoFarmAccess, setUserDemoFarmAccess] = useState<boolean | null>(null);
+
+  const isDemoRoute = Boolean(farmId && isDemoFarmId(farmId));
+  const demoMode = isDemoRoute && userDemoFarmAccess === true;
+  const demoAccessDenied = isDemoRoute && userDemoFarmAccess === false;
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const user = await getUserData();
-      if (!cancelled) setFarmerId(user?.farmer_id ?? null);
+      if (!cancelled) {
+        setFarmerId(user?.farmer_id ?? null);
+        setUserDemoFarmAccess(user?.demoFarmAccess === true ? true : false);
+      }
     })();
     return () => {
       cancelled = true;
@@ -125,19 +141,20 @@ export function useFarmDetailData(farmId: string | undefined) {
   }, []);
 
   const farmsSWR = useSWR(
-    farmId && farmerId ? swrKeys.farmsList(farmerId) : null,
+    farmId && farmerId && !isDemoRoute ? swrKeys.farmsList(farmerId) : null,
     () => getFarms(farmerId!),
     { ...sharedSwrOptions, dedupingInterval: 60_000 }
   );
 
   const farm = useMemo(() => {
+    if (demoMode && farmId) return DEMO_FARM;
     const list = farmsSWR.data?.data as IFarm[] | undefined;
     if (!farmId || !list?.length) return null;
     return list.find((f) => f.farm_id === farmId) ?? null;
-  }, [farmsSWR.data, farmId]);
+  }, [farmsSWR.data, farmId, demoMode]);
 
   const farmingSessionSWR = useSWR(
-    farmId ? swrKeys.farmingSession(farmId) : null,
+    farmId && !isDemoRoute ? swrKeys.farmingSession(farmId) : null,
     () => getFarmingSession(farmId!),
     { ...sharedSwrOptions, dedupingInterval: 30_000 }
   );
@@ -147,7 +164,7 @@ export function useFarmDetailData(farmId: string | undefined) {
 
   /** Fetch whenever a farm is open so `request_payload.lat/lng` can drive weather (even during an active session). */
   const pendingSoilSWR = useSWR(
-    farmId ? swrKeys.pendingSoil() : null,
+    farmId && !isDemoRoute ? swrKeys.pendingSoil() : null,
     () => getPendingSoil(),
     {
       ...sharedSwrOptions,
@@ -162,6 +179,20 @@ export function useFarmDetailData(farmId: string | undefined) {
         return {
           soilHealthForDisplay: null as ISoilHealth | null,
           soilHealthFromPending: false,
+          soilHealthFromFarmingSession: false,
+        };
+      }
+      if (demoAccessDenied) {
+        return {
+          soilHealthForDisplay: null,
+          soilHealthFromPending: false,
+          soilHealthFromFarmingSession: false,
+        };
+      }
+      if (demoMode) {
+        return {
+          soilHealthForDisplay: DEMO_SOIL,
+          soilHealthFromPending: true,
           soilHealthFromFarmingSession: false,
         };
       }
@@ -185,9 +216,11 @@ export function useFarmDetailData(farmId: string | undefined) {
         soilHealthFromPending: true,
         soilHealthFromFarmingSession: false,
       };
-    }, [farmId, farmingSessionActive, sessionRow, pendingSoilSWR.data]);
+    }, [farmId, demoAccessDenied, demoMode, farmingSessionActive, sessionRow, pendingSoilSWR.data]);
 
   const topCrops = useMemo((): CropProbability[] => {
+    if (demoAccessDenied) return [];
+    if (demoMode) return DEMO_TOP_CROPS;
     if (farmingSessionActive && sessionRow?.top_crop_probabilities?.length) {
       return sessionRow.top_crop_probabilities.map(({ crop_class, probability }) => ({
         crop_class,
@@ -201,19 +234,23 @@ export function useFarmDetailData(farmId: string | undefined) {
       crop_class,
       probability,
     }));
-  }, [farmingSessionActive, sessionRow, pendingSoilSWR.data]);
+  }, [demoAccessDenied, demoMode, farmingSessionActive, sessionRow, pendingSoilSWR.data]);
 
   /** Raw ML `features` from pending soil (for API soil_health_test on start farming). */
   const pendingSoilFeatures = useMemo((): number[] | undefined => {
+    if (demoAccessDenied) return undefined;
+    if (demoMode) return DEMO_SOIL_FEATURES;
     if (farmingSessionActive) return undefined;
     const r = pendingSoilSWR.data;
     if (!r?.ok || !r.data) return undefined;
     const f = r.data.features;
     if (!Array.isArray(f) || f.length < 6) return undefined;
     return f.map((x) => Number(x));
-  }, [farmingSessionActive, pendingSoilSWR.data]);
+  }, [demoAccessDenied, demoMode, farmingSessionActive, pendingSoilSWR.data]);
 
   const pendingSoilReceivedAt = useMemo((): string | null => {
+    if (demoAccessDenied) return null;
+    if (demoMode) return new Date().toISOString();
     if (farmingSessionActive && sessionRow?.soil_snapshot?.received_at) {
       return sessionRow.soil_snapshot.received_at ?? null;
     }
@@ -221,7 +258,7 @@ export function useFarmDetailData(farmId: string | undefined) {
     const r = pendingSoilSWR.data;
     if (!r?.ok || !r.data?.received_at) return null;
     return r.data.received_at;
-  }, [farmingSessionActive, sessionRow, pendingSoilSWR.data]);
+  }, [demoAccessDenied, demoMode, farmingSessionActive, sessionRow, pendingSoilSWR.data]);
 
   const pinnedFertilizerData: FertilizerPredictData | null = useMemo(() => {
     if (!farmingSessionActive || !sessionRow?.fertilizer_recommendation) return null;
@@ -264,22 +301,34 @@ export function useFarmDetailData(farmId: string | undefined) {
   const hasCoords = Number.isFinite(lat) && Number.isFinite(lon);
 
   const weatherSWR = useSWR(
-    farmId && hasCoords ? swrKeys.weatherAt(lat, lon) : null,
+    farmId && hasCoords && !demoMode ? swrKeys.weatherAt(lat, lon) : null,
     () => GetWeatherToday(lat, lon),
     { ...sharedSwrOptions, dedupingInterval: 10 * 60_000 }
   );
 
   const pageReady =
-    !!farmId &&
-    !farmsSWR.isLoading &&
-    !farmingSessionSWR.isLoading &&
-    (!hasCoords || !weatherSWR.isLoading) &&
-    (farmingSessionActive ? true : !pendingSoilSWR.isLoading);
+    isDemoRoute && userDemoFarmAccess === null
+      ? false
+      : demoMode
+        ? !!farmId
+        : demoAccessDenied
+          ? !!farmId
+          : !!farmId &&
+            !farmsSWR.isLoading &&
+            !farmingSessionSWR.isLoading &&
+            (!hasCoords || !weatherSWR.isLoading) &&
+            (farmingSessionActive ? true : !pendingSoilSWR.isLoading);
 
-  const farmsError = farmsSWR.error;
+  const farmsError = isDemoRoute ? undefined : farmsSWR.error;
+
+  const weatherOut = demoMode ? DEMO_WEATHER : (weatherSWR.data ?? null);
+  const weatherLoadingOut = demoMode ? false : hasCoords && weatherSWR.isLoading;
+  const weatherErrorOut = demoMode ? null : weatherSWR.error ?? null;
 
   return {
     farmerId,
+    demoMode,
+    demoAccessDenied,
     farm,
     soilHealthForDisplay,
     /** True when values come from ML `GET /pending/soil`. */
@@ -293,14 +342,18 @@ export function useFarmDetailData(farmId: string | undefined) {
     farmingStartedAt,
     pendingSoilReceivedAt,
     pendingSoilFeatures,
-    weather: weatherSWR.data ?? null,
+    weather: weatherOut,
     /** Lat/lon passed to the weather API (pending payload, farm row, then optional env fallback). */
-    weatherCoords: hasCoords ? ({ lat, lon } as const) : null,
+    weatherCoords: demoMode
+      ? ({ lat: DEMO_WEATHER.latitude, lon: DEMO_WEATHER.longitude } as const)
+      : hasCoords
+        ? ({ lat, lon } as const)
+        : null,
     /** False when no coordinates: weather request is skipped (set EXPO_PUBLIC_WEATHER_FALLBACK_LAT/LON for dev). */
-    hasWeatherCoords: hasCoords,
+    hasWeatherCoords: demoMode ? true : hasCoords,
     /** Set when the weather request failed (network, 4xx/5xx, or invalid API key on server). */
-    weatherError: weatherSWR.error ?? null,
-    weatherLoading: hasCoords && weatherSWR.isLoading,
+    weatherError: weatherErrorOut,
+    weatherLoading: weatherLoadingOut,
     topCrops,
     farmsError,
     isInitialLoading: !!farmId && !pageReady,

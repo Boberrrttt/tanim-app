@@ -2,10 +2,11 @@ import { colors, fontFamily, fontSize, radius, shadow, spacing } from "@/constan
 import { loginFarmer } from "@/services/auth.service";
 import { setUserData } from "@/services/token.service";
 import { useRouter } from "expo-router";
-import { Eye, EyeOff, Sprout } from "lucide-react-native";
+import { Eye, EyeOff } from "lucide-react-native";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -17,6 +18,7 @@ import {
   View,
 } from "react-native";
 import { useAppDialog } from "@/contexts/app-dialog-context";
+import { DEMO_FARM_PASSWORD, DEMO_FARM_USERNAME } from "@/constants/demo-farm";
 
 const LoginScreen = () => {
   const router = useRouter();
@@ -46,9 +48,12 @@ const LoginScreen = () => {
 
       if (farmerResponse.status === "success") {
         if (farmerResponse.data) {
+          const u = idInput.trim().toLowerCase();
+          const demoFarmAccess = u === DEMO_FARM_USERNAME.toLowerCase() && pwInput === DEMO_FARM_PASSWORD;
           await setUserData({
             ...farmerResponse.data,
             role: "farmer",
+            demoFarmAccess,
           });
         }
 
@@ -82,7 +87,12 @@ const LoginScreen = () => {
           <View style={styles.column}>
             <View style={styles.heroBlock}>
               <View style={styles.heroIcon}>
-                <Sprout size={32} color={colors.primaryForeground} strokeWidth={2} />
+                <Image
+                  source={require("@/assets/images/logo.png")}
+                  style={styles.heroLogoImage}
+                  resizeMode="contain"
+                  accessibilityLabel="Tanim logo"
+                />
               </View>
               <Text style={styles.appTitle}>Tanim</Text>
               <Text style={styles.appTagline}>Smart Agricultural Management</Text>
@@ -192,11 +202,13 @@ const styles = StyleSheet.create({
   heroIcon: {
     width: 64,
     height: 64,
-    borderRadius: radius.xl,
-    backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: spacing.lg,
+  },
+  heroLogoImage: {
+    width: 64,
+    height: 64,
   },
   appTitle: {
     fontSize: fontSize["3xl"],

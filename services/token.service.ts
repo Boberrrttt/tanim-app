@@ -10,6 +10,8 @@ export interface UserData {
   role?: 'farmer' | 'admin';
   first_name?: string;
   last_name?: string;
+  /** Set at login when username/password match the client-only demo farm account. */
+  demoFarmAccess?: boolean;
 }
 
 export const setAccessToken = async (token: string): Promise<void> => {
