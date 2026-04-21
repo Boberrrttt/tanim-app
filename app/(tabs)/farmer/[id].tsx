@@ -6,6 +6,7 @@ import {
   ScrollView,
   ActivityIndicator,
   TouchableOpacity,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { mutate } from 'swr';
@@ -161,6 +162,10 @@ export default function FarmDetailsScreen() {
   const [fertilizerError, setFertilizerError] = useState<string | null>(null);
   const [startFarmingSaving, setStartFarmingSaving] = useState(false);
   const [cancelFarmingSaving, setCancelFarmingSaving] = useState(false);
+  /** Client-only “session” for demo farm so Start Farming works without API writes. */
+  const [demoSessionActive, setDemoSessionActive] = useState(false);
+  const [demoSessionStartedAt, setDemoSessionStartedAt] = useState<string | null>(null);
+  const [demoSessionCycleStartYmd, setDemoSessionCycleStartYmd] = useState<string | null>(null);
 
   const {
     farmerId,
@@ -188,10 +193,50 @@ export default function FarmDetailsScreen() {
     mutate: farmDetailMutate,
   } = useFarmDetailData(id);
 
+  const {
+    farms: mutateFarms,
+    weather: mutateWeather,
+    pendingSoil: mutatePendingSoil,
+    farmingSession: mutateFarmingSession,
+  } = farmDetailMutate;
+
+  const [pullRefreshing, setPullRefreshing] = useState(false);
+
+  const onPullRefresh = useCallback(async () => {
+    if (demoMode) {
+      setPullRefreshing(true);
+      await new Promise<void>((r) => setTimeout(r, 450));
+      setPullRefreshing(false);
+      return;
+    }
+    setPullRefreshing(true);
+    try {
+      await Promise.all([
+        mutateFarms(),
+        mutateFarmingSession(),
+        mutatePendingSoil(),
+        mutateWeather(),
+      ]);
+    } finally {
+      setPullRefreshing(false);
+    }
+  }, [
+    demoMode,
+    mutateFarms,
+    mutateFarmingSession,
+    mutatePendingSoil,
+    mutateWeather,
+  ]);
+
+  const sessionActive = farmingSessionActive || (demoMode && demoSessionActive);
+
   const todayIs = `Today: ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`;
 
   useEffect(() => {
     setSelectedCrop(null);
+    setDemoSessionActive(false);
+    setDemoSessionStartedAt(null);
+    setDemoSessionCycleStartYmd(null);
   }, [id]);
 
   useEffect(() => {
@@ -204,6 +249,14 @@ export default function FarmDetailsScreen() {
     if (farmingSessionActive && pinnedFertilizerData) {
       setFertilizerData(pinnedFertilizerData);
       setFertilizerLoading(false);
+      return;
+    }
+
+    if (demoMode && demoSessionActive && selectedCrop && id && isDemoFarmId(id)) {
+      setFertilizerLoading(false);
+      const d = getDemoFertilizerForCrop(selectedCrop);
+      setFertilizerData(d);
+      setFertilizerError(null);
       return;
     }
 
@@ -274,28 +327,34 @@ export default function FarmDetailsScreen() {
     id,
     pendingSoilReceivedAt,
     demoMode,
+    demoSessionActive,
   ]);
 
   const onStartFarming = useCallback(async () => {
     if (
       !id ||
-      !farmerId ||
+      (!demoMode && !farmerId) ||
       !selectedCrop ||
       !soilHealthForDisplay ||
       !fertilizerData ||
-      farmingSessionActive
+      sessionActive
     ) {
       return;
     }
     if (demoMode) {
+      const ymd = localTodayYmd();
+      setDemoSessionCycleStartYmd(ymd);
+      setDemoSessionStartedAt(new Date().toISOString());
+      setDemoSessionActive(true);
       showDialog({
-        title: 'Demo farm',
+        title: 'Demo session started',
         message:
-          'This farm uses sample data on your phone only. Nothing is sent to the server. Use your real farms to save a plan.',
+          'Your plan is active on this device only. Nothing is saved to the server.',
         variant: 'success',
       });
       return;
     }
+    if (!farmerId) return;
     setStartFarmingSaving(true);
     try {
       const cycleYmd = localTodayYmd();
@@ -389,10 +448,24 @@ export default function FarmDetailsScreen() {
     weather,
     weatherCoords,
     showDialog,
+    sessionActive,
+    demoMode,
   ]);
 
   const onCancelFarming = useCallback(() => {
-    if (!id || !farmerId || !farmingSessionActive || demoMode) return;
+    if (!id) return;
+    if (demoMode && demoSessionActive) {
+      setDemoSessionActive(false);
+      setDemoSessionStartedAt(null);
+      setDemoSessionCycleStartYmd(null);
+      showDialog({
+        title: 'Demo session ended',
+        message: 'You can pick a crop and start again. Nothing was changed on the server.',
+        variant: 'success',
+      });
+      return;
+    }
+    if (!farmerId || !farmingSessionActive) return;
     showDialog({
       title: 'End this farming session?',
       message:
@@ -455,7 +528,7 @@ export default function FarmDetailsScreen() {
         },
       ],
     });
-  }, [id, farmerId, farmingSessionActive, farmDetailMutate, showDialog]);
+  }, [id, farmerId, farmingSessionActive, demoMode, demoSessionActive, farmDetailMutate, showDialog]);
 
   useEffect(() => {
     if (isDemoFarmId(id) || !farmsError || isAbortLikeError(farmsError)) return;
@@ -522,7 +595,7 @@ export default function FarmDetailsScreen() {
     !!fertilizerData &&
     !fertilizerLoading &&
     !fertilizerError &&
-    !farmingSessionActive;
+    !sessionActive;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -537,7 +610,17 @@ export default function FarmDetailsScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={pullRefreshing}
+            onRefresh={onPullRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
         <View style={styles.farmCallout}>
           <MapPin size={24} color={colors.primary} strokeWidth={2} />
           <View style={styles.farmCalloutText}>
@@ -561,20 +644,21 @@ export default function FarmDetailsScreen() {
           </View>
         ) : null}
 
-        {farmingSessionActive && farmingStartedAt ? (
+        {sessionActive && (farmingStartedAt || demoSessionStartedAt) ? (
           <View style={styles.pinnedFarmBanner}>
             <Sprout size={20} color={colors.primary} strokeWidth={2} />
             <View style={styles.pinnedFarmBannerText}>
               <Text style={styles.pinnedFarmBannerTitle}>Farming session active</Text>
               <Text style={styles.pinnedFarmBannerBody}>
-                You started this plan on {new Date(farmingStartedAt).toLocaleString()}. The app keeps
-                using those saved soil and crop numbers for this farm instead of new sensor readings.
+                {demoMode && demoSessionActive
+                  ? `Demo plan started on ${new Date(demoSessionStartedAt || Date.now()).toLocaleString()}. Sample data only on this device.`
+                  : `You started this plan on ${new Date(farmingStartedAt!).toLocaleString()}. The app keeps using those saved soil and crop numbers for this farm instead of new sensor readings.`}
               </Text>
             </View>
           </View>
         ) : null}
 
-        {farmingSessionActive && farmerId ? (
+        {sessionActive && (farmerId || demoMode) ? (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Ban size={26} color={colors.destructive} strokeWidth={2} />
@@ -789,14 +873,14 @@ export default function FarmDetailsScreen() {
                   style={[
                     styles.cropSuggestionCard,
                     isSelected && styles.cropSuggestionCardSelected,
-                    farmingSessionActive && styles.cropSuggestionCardDisabled,
+                    sessionActive && styles.cropSuggestionCardDisabled,
                   ]}
                   onPress={() => {
-                    if (farmingSessionActive) return;
+                    if (sessionActive) return;
                     setSelectedCrop(crop.crop_class);
                   }}
-                  activeOpacity={farmingSessionActive ? 1 : 0.7}
-                  disabled={farmingSessionActive}
+                  activeOpacity={sessionActive ? 1 : 0.7}
+                  disabled={sessionActive}
                 >
                   <View style={styles.cropSuggestionLeft}>
                     <View style={[styles.cropRankBadge, isSelected && styles.cropRankBadgeSelected]}>
@@ -888,6 +972,7 @@ export default function FarmDetailsScreen() {
                   );
                 }
                 const ymd = (farmingSessionCycleStartYmd ||
+                  demoSessionCycleStartYmd ||
                   ft.cycle_start_date?.trim() ||
                   localTodayYmd()) as string;
                 const cycleStart = parseYmdLocal(ymd);
@@ -911,9 +996,10 @@ export default function FarmDetailsScreen() {
                   dayEnd: p.day_end,
                   description: p.description,
                 }));
-                const footnote = farmingSessionCycleStartYmd
-                  ? `${ft.total_days}-day crop calendar. Day 1 is ${ymd} (when you saved your plan).`
-                  : `${ft.total_days}-day crop calendar. Day 1 is ${ymd} for preview until you save your plan.`;
+                const footnote =
+                  farmingSessionCycleStartYmd || demoSessionCycleStartYmd
+                    ? `${ft.total_days}-day crop calendar. Day 1 is ${ymd} (when you saved your plan).`
+                    : `${ft.total_days}-day crop calendar. Day 1 is ${ymd} for preview until you save your plan.`;
                 return (
                   <View style={styles.timelineWrap}>
                     <FarmingTimeline
@@ -1038,7 +1124,7 @@ export default function FarmDetailsScreen() {
           )}
         </View>
 
-        {!farmingSessionActive ? (
+        {!sessionActive ? (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Play size={26} color={colors.primary} strokeWidth={2} />
@@ -1051,9 +1137,10 @@ export default function FarmDetailsScreen() {
             <TouchableOpacity
               style={[
                 styles.startFarmingButton,
-                (!canStartFarming || startFarmingSaving || !farmerId) && styles.startFarmingButtonDisabled,
+                (!canStartFarming || startFarmingSaving || (!demoMode && !farmerId)) &&
+                  styles.startFarmingButtonDisabled,
               ]}
-              disabled={!canStartFarming || startFarmingSaving || !farmerId}
+              disabled={!canStartFarming || startFarmingSaving || (!demoMode && !farmerId)}
               onPress={onStartFarming}
               activeOpacity={0.85}
             >
@@ -1066,7 +1153,7 @@ export default function FarmDetailsScreen() {
                 </>
               )}
             </TouchableOpacity>
-            {!farmerId ? (
+            {!demoMode && !farmerId ? (
               <Text style={styles.startFarmingHint}>Sign in as a farmer to save your plan.</Text>
             ) : !canStartFarming ? (
               <Text style={styles.startFarmingHint}>
