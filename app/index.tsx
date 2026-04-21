@@ -5,8 +5,8 @@ import {
   Text,
   StyleSheet,
   Animated,
+  Image,
 } from 'react-native';
-import { Sprout } from 'lucide-react-native';
 import { colors, fontFamily, fontSize, radius, spacing } from '@/constants/design-tokens';
 
 export type RootStackParamList = {
@@ -61,7 +61,12 @@ const Index = () => {
         ]}
       >
         <View style={styles.heroIcon}>
-          <Sprout size={36} color={colors.primaryForeground} strokeWidth={2.5} />
+          <Image
+            source={require('@/assets/images/logo.png')}
+            style={styles.heroLogoImage}
+            resizeMode="contain"
+            accessibilityLabel="Tanim logo"
+          />
         </View>
 
         <Text style={styles.appName}>Tanim</Text>
@@ -96,6 +101,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: spacing.sm,
+  },
+  heroLogoImage: {
+    width: 48,
+    height: 48,
   },
   appName: {
     fontSize: fontSize['3xl'],
