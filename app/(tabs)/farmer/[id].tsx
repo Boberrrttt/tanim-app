@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -24,6 +24,8 @@ import {
   Play,
   Sprout,
   Ban,
+  ChevronRight,
+  ChevronLeft,
 } from 'lucide-react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { isAbortLikeError } from '@/services/api';
@@ -40,6 +42,7 @@ import { fontFamily, fontSize, radius, colors, spacing, shadow } from '@/constan
 import FarmingTimeline from '@/components/FarmingTimeline';
 import { getCurrentCycleDay, getCycleEndDate } from '@/constants/crop-cycle';
 import { getDemoFertilizerForCrop, isDemoFarmId } from '@/constants/demo-farm';
+import { soilHealthQualitative, qualitativeProgressPercent } from '@/utils/soil-qualitative';
 
 const kelvinToCelsius = (kelvin: number) => Math.round(kelvin - 273.15);
 
@@ -100,7 +103,26 @@ const getWeatherRecommendation = (
   }
 };
 
-function healthStatusBadge(status: string) {
+type HealthBadgeKind = 'fertility' | 'inverted' | 'ambient';
+
+/** BSWM-style Low / Medium / High, or special salinity (inverted) / ambient (moisture, temp) coloring. */
+function healthStatusBadge(status: string, kind: HealthBadgeKind = 'fertility') {
+  if (kind === 'inverted') {
+    if (status === 'Low')
+      return { bg: colors.successLight, fg: colors.success };
+    if (status === 'Medium' || status === 'Moderate')
+      return { bg: colors.warningLight, fg: colors.warning };
+    if (status === 'High')
+      return { bg: colors.dangerLight, fg: colors.destructive };
+  }
+  if (kind === 'ambient') {
+    if (status === 'Medium' || status === 'Moderate')
+      return { bg: colors.successLight, fg: colors.success };
+    if (status === 'Low')
+      return { bg: colors.infoLight, fg: colors.info };
+    if (status === 'High' || status === 'Good')
+      return { bg: colors.warningLight, fg: colors.warning };
+  }
   if (status === 'Good' || status === 'High')
     return { bg: colors.successLight, fg: colors.success };
   if (status === 'Low')
@@ -113,40 +135,64 @@ function healthStatusBadge(status: string) {
 const HealthCard = ({
   element,
   symbol,
-  percent,
   status,
   actualValue,
   unit,
-  maxValue,
+  statusKind = 'fertility',
 }: {
   element: string;
   symbol: string;
-  percent: number;
   status: string;
   actualValue: string;
   unit: string;
-  maxValue: string;
+  statusKind?: HealthBadgeKind;
 }) => {
-  const badge = healthStatusBadge(status);
+  const badge = healthStatusBadge(status, statusKind);
+  const fillW = Math.min(100, Math.max(0, qualitativeProgressPercent(status)));
+  const invertedScale = statusKind === 'inverted';
+  const salinityCaution = invertedScale && (status === 'High' || status === 'Medium');
   return (
     <View style={styles.healthCard}>
       <View style={styles.healthCardHeader}>
         <View style={styles.healthCardTitle}>
           <Text style={styles.healthSymbol}>{symbol}</Text>
-          <Text style={styles.healthElement}>{element}</Text>
+          <View style={styles.healthElementBlock}>
+            <Text style={styles.healthElement} numberOfLines={2}>
+              {element}
+            </Text>
+            {invertedScale ? (
+              <Text style={styles.healthElementHint} numberOfLines={2}>
+                High salt hurts roots—aim for Low on this scale.
+              </Text>
+            ) : null}
+          </View>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
+        <View
+          style={[
+            styles.statusBadge,
+            invertedScale && styles.statusBadgeRow,
+            { backgroundColor: badge.bg },
+            salinityCaution && { borderWidth: 1, borderColor: badge.fg },
+          ]}
+        >
+          {invertedScale ? (
+            <ChevronLeft size={15} color={badge.fg} strokeWidth={2.5} />
+          ) : null}
           <Text style={[styles.statusText, { color: badge.fg }]}>{status}</Text>
         </View>
       </View>
       <View style={styles.progressBar}>
-        <View style={[styles.progressFill, { width: `${percent}%` }]} />
+        <View
+          style={[
+            styles.progressFill,
+            { width: `${fillW}%`, backgroundColor: badge.fg },
+          ]}
+        />
       </View>
-      <View style={styles.healthCardFooter}>
-        <Text style={styles.healthValue}>0</Text>
-        <Text style={styles.healthValueMain}>{actualValue}{unit}</Text>
-        <Text style={styles.healthValue}>{maxValue}{unit}</Text>
-      </View>
+      <Text style={styles.healthCardReading} numberOfLines={2}>
+        {actualValue}
+        {unit}
+      </Text>
     </View>
   );
 };
@@ -199,6 +245,11 @@ export default function FarmDetailsScreen() {
     pendingSoil: mutatePendingSoil,
     farmingSession: mutateFarmingSession,
   } = farmDetailMutate;
+
+  const soilQ = useMemo(
+    () => (soilHealthForDisplay ? soilHealthQualitative(soilHealthForDisplay) : null),
+    [soilHealthForDisplay]
+  );
 
   const [pullRefreshing, setPullRefreshing] = useState(false);
 
@@ -717,73 +768,60 @@ export default function FarmDetailsScreen() {
           ) : null}
 
           {soilHealthForDisplay ? (
-            <>
-              <View style={styles.healthGrid}>
-                <HealthCard
-                  element="Nitrogen"
-                  symbol="𝐍"
-                  percent={soilHealthForDisplay.nitrogen}
-                  status="Good"
-                  actualValue={soilHealthForDisplay.nitrogen?.toString() ?? '0'}
-                  unit="mg/kg"
-                  maxValue="100"
-                />
-                <HealthCard
-                  element="Phosphorus"
-                  symbol="𝐏"
-                  percent={soilHealthForDisplay.phosphorus}
-                  status="Good"
-                  actualValue={soilHealthForDisplay.phosphorus?.toString() ?? '0'}
-                  unit="mg/kg"
-                  maxValue="100"
-                />
-                <HealthCard
-                  element="Potassium"
-                  symbol="𝐊"
-                  percent={soilHealthForDisplay.potassium}
-                  status="Good"
-                  actualValue={soilHealthForDisplay.potassium?.toString() ?? '0'}
-                  unit="mg/kg"
-                  maxValue="100"
-                />
-                <HealthCard
-                  element="Salinity"
-                  symbol="🧂"
-                  percent={soilHealthForDisplay.salinity * 15}
-                  status="Low"
-                  actualValue={soilHealthForDisplay.salinity?.toString() ?? '0'}
-                  unit=" dS/m"
-                  maxValue="6.5"
-                />
-                <HealthCard
-                  element="pH"
-                  symbol="🧪"
-                  percent={soilHealthForDisplay.ph * 10}
-                  status="Good"
-                  actualValue={soilHealthForDisplay.ph?.toString() ?? '0'}
-                  unit=" pH"
-                  maxValue="10"
-                />
-                <HealthCard
-                  element="Moisture"
-                  symbol="💧"
-                  percent={soilHealthForDisplay.moisture}
-                  status="Good"
-                  actualValue={soilHealthForDisplay.moisture?.toString() ?? '0'}
-                  unit="%"
-                  maxValue="100"
-                />
-                <HealthCard
-                  element="Temperature"
-                  symbol="🌡️"
-                  percent={Math.min(100, Math.max(0, soilHealthForDisplay.temperature * 2))}
-                  status="Good"
-                  actualValue={soilHealthForDisplay.temperature?.toString() ?? '0'}
-                  unit=" °C"
-                  maxValue="50"
-                />
-              </View>
-            </>
+            <View style={styles.healthGrid}>
+              <HealthCard
+                element="Nitrogen"
+                symbol="𝐍"
+                status={soilQ ? soilQ.nitrogen : 'Low'}
+                actualValue={soilHealthForDisplay.nitrogen?.toString() ?? '0'}
+                unit={soilHealthForDisplay.nitrogen <= 6.5 ? '% OM' : ' (sensor)'}
+              />
+              <HealthCard
+                element={soilQ ? `Phosphorus (${soilQ.pTest})` : 'Phosphorus'}
+                symbol="𝐏"
+                status={soilQ ? soilQ.phosphorus : 'Low'}
+                actualValue={soilHealthForDisplay.phosphorus?.toString() ?? '0'}
+                unit=" ppm"
+              />
+              <HealthCard
+                element="Potassium"
+                symbol="𝐊"
+                status={soilQ ? soilQ.potassium : 'Low'}
+                actualValue={soilHealthForDisplay.potassium?.toString() ?? '0'}
+                unit=" ppm"
+              />
+              <HealthCard
+                element="Salinity"
+                symbol="🧂"
+                status={soilQ ? soilQ.salinity : 'Low'}
+                statusKind="inverted"
+                actualValue={soilHealthForDisplay.salinity?.toString() ?? '0'}
+                unit=" dS/m"
+              />
+              <HealthCard
+                element="pH"
+                symbol="🧪"
+                status={soilQ ? soilQ.ph : 'Low'}
+                actualValue={soilHealthForDisplay.ph?.toString() ?? '0'}
+                unit=" pH"
+              />
+              <HealthCard
+                element="Moisture"
+                symbol="💧"
+                status={soilQ ? soilQ.moisture : 'Low'}
+                statusKind="ambient"
+                actualValue={soilHealthForDisplay.moisture?.toString() ?? '0'}
+                unit="%"
+              />
+              <HealthCard
+                element="Temperature"
+                symbol="🌡️"
+                status={soilQ ? soilQ.temperature : 'Low'}
+                statusKind="ambient"
+                actualValue={soilHealthForDisplay.temperature?.toString() ?? '0'}
+                unit=" °C"
+              />
+            </View>
           ) : (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyText}>
@@ -914,8 +952,9 @@ export default function FarmDetailsScreen() {
             </Text>
           </View>
           <Text style={styles.sectionDescription}>
-            We rate your soil as low, medium, or high for each nutrient, then suggest amounts for this
-            crop. Always follow the bag label and your local agriculture office.
+            Nutrient and pH levels use BSWM-style low, medium, and high bands. Phosphorus uses the
+            Bray-1 scale when pH is under 7.3, and the Olsen scale when pH is 7.3 or above. Always
+            follow the bag label and your local agriculture office.
           </Text>
 
           {!selectedCrop ? (
@@ -1029,20 +1068,21 @@ export default function FarmDetailsScreen() {
 
               <Text style={styles.fertSectionHeading}>Soil nutrient levels</Text>
               <Text style={styles.fertSectionHint}>
-                Shown as low, medium, or high from your nitrogen, phosphorus, and potassium tests.
+                Low, medium, and high are derived from your latest soil numbers using the same rules as
+                the soil health cards.
               </Text>
               <View style={styles.fertNpkRow}>
                 {(
                   [
-                    { key: 'nitrogen' as const, symbol: 'N' },
-                    { key: 'phosphorus' as const, symbol: 'P' },
-                    { key: 'potassium' as const, symbol: 'K' },
+                    { k: 'nitrogen' as const, symbol: 'N' },
+                    { k: 'phosphorus' as const, symbol: 'P' },
+                    { k: 'potassium' as const, symbol: 'K' },
                   ] as const
-                ).map(({ key, symbol }) => {
-                  const status = fertilizerData[key];
-                  const badge = healthStatusBadge(status);
+                ).map(({ k, symbol }) => {
+                  const status = soilQ ? soilQ[k] : fertilizerData[k];
+                  const badge = healthStatusBadge(status, 'fertility');
                   return (
-                    <View key={key} style={styles.fertNpkPill}>
+                    <View key={k} style={styles.fertNpkPill}>
                       <Text style={styles.fertNpkSymbol}>{symbol}</Text>
                       <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
                         <Text style={[styles.statusText, { color: badge.fg }]}>{status}</Text>
@@ -1347,10 +1387,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: radius.full,
   },
-  statusText: {
-    fontSize: fontSize.sm,
-    fontFamily: fontFamily.semibold,
-  },
   progressBar: {
     height: 10,
     backgroundColor: colors.muted,
@@ -1359,22 +1395,17 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: '100%',
-    backgroundColor: colors.primary,
     borderRadius: 5,
   },
-  healthCardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  healthValue: {
-    fontSize: fontSize.sm,
-    fontFamily: fontFamily.regular,
-    color: colors.mutedForeground,
-  },
-  healthValueMain: {
+  healthCardReading: {
     fontSize: fontSize.sm + 1,
     fontFamily: fontFamily.semibold,
     color: colors.primary,
+    textAlign: 'center',
+  },
+  statusText: {
+    fontSize: fontSize.sm,
+    fontFamily: fontFamily.semibold,
   },
   emptyCard: {
     padding: spacing['2xl'],
