@@ -9,7 +9,7 @@ export const swrKeys = {
     ['weather', 'farm', farmId, lat, lon] as const,
   mlPredict: (farmId: string, soilFingerprint: string) =>
     ['ml', 'predict', farmId, soilFingerprint] as const,
-  /** Latest ML pending snapshot for this farm (SWR cache + offline copy are per farm). */
+  /** Latest ML pending snapshot for this farm (no device copy; server soil is `soilForFarm`). */
   pendingSoil: (farmId: string) => ['ml', 'pending-soil', farmId] as const,
   /** Pinned farming snapshot from tanim-api (disables ML pending for that farm). */
   farmingSession: (farmId: string) => ['farm', 'farming-session', farmId] as const,

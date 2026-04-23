@@ -25,7 +25,6 @@ import {
   Sprout,
   Ban,
   ChevronRight,
-  ChevronLeft,
 } from 'lucide-react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { isAbortLikeError } from '@/services/api';
@@ -103,18 +102,10 @@ const getWeatherRecommendation = (
   }
 };
 
-type HealthBadgeKind = 'fertility' | 'inverted' | 'ambient';
+type HealthBadgeKind = 'fertility' | 'ambient';
 
-/** BSWM-style Low / Medium / High, or special salinity (inverted) / ambient (moisture, temp) coloring. */
+/** BSWM-style Low / Medium / High; ambient (moisture, temp) uses slightly different band colors. */
 function healthStatusBadge(status: string, kind: HealthBadgeKind = 'fertility') {
-  if (kind === 'inverted') {
-    if (status === 'Low')
-      return { bg: colors.successLight, fg: colors.success };
-    if (status === 'Medium' || status === 'Moderate')
-      return { bg: colors.warningLight, fg: colors.warning };
-    if (status === 'High')
-      return { bg: colors.dangerLight, fg: colors.destructive };
-  }
   if (kind === 'ambient') {
     if (status === 'Medium' || status === 'Moderate')
       return { bg: colors.successLight, fg: colors.success };
@@ -149,35 +140,18 @@ const HealthCard = ({
 }) => {
   const badge = healthStatusBadge(status, statusKind);
   const fillW = Math.min(100, Math.max(0, qualitativeProgressPercent(status)));
-  const invertedScale = statusKind === 'inverted';
-  const salinityCaution = invertedScale && (status === 'High' || status === 'Medium');
   return (
     <View style={styles.healthCard}>
       <View style={styles.healthCardHeader}>
         <View style={styles.healthCardTitle}>
           <Text style={styles.healthSymbol}>{symbol}</Text>
-          <View style={styles.healthElementBlock}>
+          <View>
             <Text style={styles.healthElement} numberOfLines={2}>
               {element}
             </Text>
-            {invertedScale ? (
-              <Text style={styles.healthElementHint} numberOfLines={2}>
-                High salt hurts roots—aim for Low on this scale.
-              </Text>
-            ) : null}
           </View>
         </View>
-        <View
-          style={[
-            styles.statusBadge,
-            invertedScale && styles.statusBadgeRow,
-            { backgroundColor: badge.bg },
-            salinityCaution && { borderWidth: 1, borderColor: badge.fg },
-          ]}
-        >
-          {invertedScale ? (
-            <ChevronLeft size={15} color={badge.fg} strokeWidth={2.5} />
-          ) : null}
+        <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
           <Text style={[styles.statusText, { color: badge.fg }]}>{status}</Text>
         </View>
       </View>
@@ -216,9 +190,11 @@ export default function FarmDetailsScreen() {
   const {
     farmerId,
     farm,
+    selectedFarmId,
     soilHealthForDisplay,
     soilHealthFromPending,
     soilHealthFromFarmingSession,
+    soilHealthFromApi,
     farmingSessionActive,
     pinnedFertilizerData,
     pinnedSelectedCrop,
@@ -239,11 +215,14 @@ export default function FarmDetailsScreen() {
     mutate: farmDetailMutate,
   } = useFarmDetailData(id);
 
+  const farmIdForApi = (selectedFarmId ?? id) as string | undefined;
+
   const {
     farms: mutateFarms,
     weather: mutateWeather,
     pendingSoil: mutatePendingSoil,
     farmingSession: mutateFarmingSession,
+    soilFromApi: mutateSoilFromApi,
   } = farmDetailMutate;
 
   const soilQ = useMemo(
@@ -266,6 +245,7 @@ export default function FarmDetailsScreen() {
         mutateFarms(),
         mutateFarmingSession(),
         mutatePendingSoil(),
+        mutateSoilFromApi(),
         mutateWeather(),
       ]);
     } finally {
@@ -276,6 +256,7 @@ export default function FarmDetailsScreen() {
     mutateFarms,
     mutateFarmingSession,
     mutatePendingSoil,
+    mutateSoilFromApi,
     mutateWeather,
   ]);
 
@@ -344,7 +325,7 @@ export default function FarmDetailsScreen() {
             potassium: soilHealthForDisplay.potassium,
             ph: soilHealthForDisplay.ph,
             crop: selectedCrop,
-            farm_id: id,
+            farm_id: farmIdForApi!,
             cycle_start_date: localTodayYmd(),
           },
           { signal: controller.signal }
@@ -376,6 +357,7 @@ export default function FarmDetailsScreen() {
     selectedCrop,
     soilHealthForDisplay,
     id,
+    farmIdForApi,
     pendingSoilReceivedAt,
     demoMode,
     demoSessionActive,
@@ -426,7 +408,7 @@ export default function FarmDetailsScreen() {
               ? weather.longitude
               : undefined;
       const res = await startFarmingSession({
-        farm_id: id,
+        farm_id: farmIdForApi!,
         farmer_id: farmerId,
         selected_crop: selectedCrop,
         soil_snapshot: {
@@ -486,6 +468,7 @@ export default function FarmDetailsScreen() {
     }
   }, [
     id,
+    farmIdForApi,
     farmerId,
     selectedCrop,
     soilHealthForDisplay,
@@ -532,7 +515,7 @@ export default function FarmDetailsScreen() {
             void (async () => {
               setCancelFarmingSaving(true);
               try {
-                const res = await cancelFarmingSession(id, farmerId);
+                const res = await cancelFarmingSession(farmIdForApi ?? id, farmerId);
                 if (res.status !== 'success') {
                 showDialog({
                   title: 'Could not end the session',
@@ -579,7 +562,7 @@ export default function FarmDetailsScreen() {
         },
       ],
     });
-  }, [id, farmerId, farmingSessionActive, demoMode, demoSessionActive, farmDetailMutate, showDialog]);
+  }, [id, farmIdForApi, farmerId, farmingSessionActive, demoMode, demoSessionActive, farmDetailMutate, showDialog]);
 
   useEffect(() => {
     if (isDemoFarmId(id) || !farmsError || isAbortLikeError(farmsError)) return;
@@ -766,6 +749,12 @@ export default function FarmDetailsScreen() {
               temperature).
             </Text>
           ) : null}
+          {!demoMode && soilHealthFromApi ? (
+            <Text style={styles.soilPendingNote}>
+              These numbers are your latest soil test saved on your account (from a recent sensor reading,
+              or the most recent test we have) while we are not getting new live data from the model.
+            </Text>
+          ) : null}
 
           {soilHealthForDisplay ? (
             <View style={styles.healthGrid}>
@@ -777,7 +766,7 @@ export default function FarmDetailsScreen() {
                 unit={soilHealthForDisplay.nitrogen <= 6.5 ? '% OM' : ' (sensor)'}
               />
               <HealthCard
-                element={soilQ ? `Phosphorus (${soilQ.pTest})` : 'Phosphorus'}
+                element="Phosphorus"
                 symbol="𝐏"
                 status={soilQ ? soilQ.phosphorus : 'Low'}
                 actualValue={soilHealthForDisplay.phosphorus?.toString() ?? '0'}
@@ -794,7 +783,6 @@ export default function FarmDetailsScreen() {
                 element="Salinity"
                 symbol="🧂"
                 status={soilQ ? soilQ.salinity : 'Low'}
-                statusKind="inverted"
                 actualValue={soilHealthForDisplay.salinity?.toString() ?? '0'}
                 unit=" dS/m"
               />
@@ -952,9 +940,9 @@ export default function FarmDetailsScreen() {
             </Text>
           </View>
           <Text style={styles.sectionDescription}>
-            Nutrient and pH levels use BSWM-style low, medium, and high bands. Phosphorus uses the
-            Bray-1 scale when pH is under 7.3, and the Olsen scale when pH is 7.3 or above. Always
-            follow the bag label and your local agriculture office.
+            Nutrient and pH levels use BSWM-style low, medium, and high bands. Phosphorus (ppm) uses
+            pH-based bands from the same reference. Always follow the bag label and your local
+            agriculture office.
           </Text>
 
           {!selectedCrop ? (

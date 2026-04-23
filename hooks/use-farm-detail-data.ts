@@ -5,15 +5,19 @@ import {
   type FarmingSessionSoilSnapshot,
 } from '@/services/farming-session.service';
 import { getUserData } from '@/services/token.service';
-import type { PendingSoilResult, PendingSoilSnapshot } from '@/services/ml.service';
+import type { PendingSoilSnapshot } from '@/services/ml.service';
 import {
   fetchFarmsWithOfflinePersist,
   fetchFarmingSessionWithOfflinePersist,
   fetchPendingSoilWithOfflinePersist,
   fetchWeatherWithOfflinePersist,
-  loadPersistedPendingSoil,
   pendingSnapshotAppliesToFarm,
 } from '@/services/offline-sync.service';
+import {
+  getSoilHealth,
+  parseSoilHealthRows,
+  pickSoilRowForDisplay,
+} from '@/services/soil-health.service';
 import { swrKeys } from '@/constants/swr-keys';
 import type { IFarm } from '@/types/farm.types';
 import type { ISoilHealth } from '@/types/soil-health.types';
@@ -119,13 +123,12 @@ function coordsFromPendingSnapshot(
 
 /**
  * Farm detail: weather + farms list.
- * Soil / crops / fertilizer: either **pinned** `GET /farm/farming/{farmId}` (no ML pending)
- * or **live** `GET {ML}/pending/soil`.
+ * Soil: **pinned** `GET /farm/farming/{farmId}` when a session exists, else **live** `GET {ML}/pending/soil`
+ * (synced to `PUT /api/v1/test/upsert` on the main API), else **fallback** `GET /test/{farmId}`.
  */
 export function useFarmDetailData(farmId: string | undefined) {
   const [farmerId, setFarmerId] = useState<string | null>(null);
   const [userDemoFarmAccess, setUserDemoFarmAccess] = useState<boolean | null>(null);
-  const [pendingSoilFallback, setPendingSoilFallback] = useState<PendingSoilResult | null>(null);
 
   const isDemoRoute = Boolean(farmId && isDemoFarmId(farmId));
   const demoMode = isDemoRoute && userDemoFarmAccess === true;
@@ -145,22 +148,6 @@ export function useFarmDetailData(farmId: string | undefined) {
     };
   }, []);
 
-  useEffect(() => {
-    if (!farmId || isDemoRoute) {
-      setPendingSoilFallback(null);
-      return;
-    }
-    let cancelled = false;
-    setPendingSoilFallback(null);
-    (async () => {
-      const snap = await loadPersistedPendingSoil(farmId);
-      if (!cancelled && snap?.ok && snap.data) setPendingSoilFallback(snap);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [farmId, isDemoRoute]);
-
   const farmsSWR = useSWR(
     farmId && farmerId && !isDemoRoute ? swrKeys.farmsList(farmerId) : null,
     () => fetchFarmsWithOfflinePersist(farmerId!),
@@ -174,6 +161,9 @@ export function useFarmDetailData(farmId: string | undefined) {
     return list.find((f) => f.farm_id === farmId) ?? null;
   }, [farmsSWR.data, farmId, demoMode]);
 
+  /** For `soil_health_test` + pending ML, always the selected farm (list row id, else route). */
+  const selectedFarmId = farmId ? (farm?.farm_id ?? farmId) : undefined;
+
   const farmingSessionSWR = useSWR(
     farmId && !isDemoRoute ? swrKeys.farmingSession(farmId) : null,
     () => fetchFarmingSessionWithOfflinePersist(farmId!),
@@ -182,26 +172,42 @@ export function useFarmDetailData(farmId: string | undefined) {
 
   const sessionRow = farmingSessionSWR.data?.data;
   const farmingSessionActive = isActiveSession(sessionRow);
+  /** No need to load `soil_health_test` list when the session already pins a soil snapshot. */
+  const skipSoilListFetch =
+    demoMode ||
+    demoAccessDenied ||
+    (farmingSessionActive && Boolean(sessionRow?.soil_snapshot));
 
   /** Fetch whenever a farm is open so `request_payload.lat/lng` can drive weather (even during an active session). */
   const pendingSoilSWR = useSWR(
-    farmId && !isDemoRoute ? swrKeys.pendingSoil(farmId) : null,
-    () => fetchPendingSoilWithOfflinePersist(farmId!),
+    selectedFarmId && !isDemoRoute ? swrKeys.pendingSoil(selectedFarmId) : null,
+    () => fetchPendingSoilWithOfflinePersist(selectedFarmId!),
     {
       ...sharedSwrOptions,
       dedupingInterval: 0,
       refreshInterval: farmingSessionActive ? 0 : 20_000,
-      fallbackData: pendingSoilFallback ?? undefined,
     }
   );
 
-  const { soilHealthForDisplay, soilHealthFromPending, soilHealthFromFarmingSession } =
+  const soilFromApiSWR = useSWR(
+    selectedFarmId && !isDemoRoute && !skipSoilListFetch
+      ? swrKeys.soilForFarm(selectedFarmId)
+      : null,
+    async () => {
+      const res = await getSoilHealth({ farm_id: selectedFarmId! });
+      return parseSoilHealthRows(res, selectedFarmId);
+    },
+    { ...sharedSwrOptions, dedupingInterval: 60_000 }
+  );
+
+  const { soilHealthForDisplay, soilHealthFromPending, soilHealthFromFarmingSession, soilHealthFromApi } =
     useMemo(() => {
-      if (!farmId) {
+      if (!farmId || !selectedFarmId) {
         return {
           soilHealthForDisplay: null as ISoilHealth | null,
           soilHealthFromPending: false,
           soilHealthFromFarmingSession: false,
+          soilHealthFromApi: false,
         };
       }
       if (demoAccessDenied) {
@@ -209,6 +215,7 @@ export function useFarmDetailData(farmId: string | undefined) {
           soilHealthForDisplay: null,
           soilHealthFromPending: false,
           soilHealthFromFarmingSession: false,
+          soilHealthFromApi: false,
         };
       }
       if (demoMode) {
@@ -216,29 +223,51 @@ export function useFarmDetailData(farmId: string | undefined) {
           soilHealthForDisplay: DEMO_SOIL,
           soilHealthFromPending: true,
           soilHealthFromFarmingSession: false,
+          soilHealthFromApi: false,
         };
       }
       if (farmingSessionActive && sessionRow?.soil_snapshot) {
         return {
-          soilHealthForDisplay: sessionSoilToISoilHealth(farmId, sessionRow.soil_snapshot),
+          soilHealthForDisplay: sessionSoilToISoilHealth(selectedFarmId, sessionRow.soil_snapshot),
           soilHealthFromPending: false,
           soilHealthFromFarmingSession: true,
+          soilHealthFromApi: false,
         };
       }
       const pending = pendingSoilSWR.data;
-      if (!pending?.ok || !pending.data || !pendingSnapshotAppliesToFarm(pending.data, farmId)) {
+      if (pending?.ok && pending.data && pendingSnapshotAppliesToFarm(pending.data, selectedFarmId)) {
         return {
-          soilHealthForDisplay: null,
+          soilHealthForDisplay: pendingSoilToISoilHealth(selectedFarmId, pending.data),
+          soilHealthFromPending: true,
+          soilHealthFromFarmingSession: false,
+          soilHealthFromApi: false,
+        };
+      }
+      const fromApi = pickSoilRowForDisplay(selectedFarmId, soilFromApiSWR.data ?? []);
+      if (fromApi) {
+        return {
+          soilHealthForDisplay: fromApi,
           soilHealthFromPending: false,
           soilHealthFromFarmingSession: false,
+          soilHealthFromApi: true,
         };
       }
       return {
-        soilHealthForDisplay: pendingSoilToISoilHealth(farmId, pending.data),
-        soilHealthFromPending: true,
+        soilHealthForDisplay: null,
+        soilHealthFromPending: false,
         soilHealthFromFarmingSession: false,
+        soilHealthFromApi: false,
       };
-    }, [farmId, demoAccessDenied, demoMode, farmingSessionActive, sessionRow, pendingSoilSWR.data]);
+    }, [
+      farmId,
+      selectedFarmId,
+      demoAccessDenied,
+      demoMode,
+      farmingSessionActive,
+      sessionRow,
+      pendingSoilSWR.data,
+      soilFromApiSWR.data,
+    ]);
 
   const topCrops = useMemo((): CropProbability[] => {
     if (demoAccessDenied) return [];
@@ -250,29 +279,36 @@ export function useFarmDetailData(farmId: string | undefined) {
       }));
     }
     const r = pendingSoilSWR.data;
-    if (!r?.ok || !r.data || !pendingSnapshotAppliesToFarm(r.data, farmId)) return [];
+    if (
+      !selectedFarmId ||
+      !r?.ok ||
+      !r.data ||
+      !pendingSnapshotAppliesToFarm(r.data, selectedFarmId)
+    ) {
+      return [];
+    }
     const top = r.data.probabilities_top_3 ?? [];
     return top.map(({ crop_class, probability }) => ({
       crop_class,
       probability,
     }));
-  }, [demoAccessDenied, demoMode, farmingSessionActive, sessionRow, pendingSoilSWR.data, farmId]);
+  }, [demoAccessDenied, demoMode, farmingSessionActive, sessionRow, pendingSoilSWR.data, selectedFarmId]);
 
   /** Raw ML `features` from pending soil (for API soil_health_test on start farming). */
   const pendingSoilFeatures = useMemo((): number[] | undefined => {
-    if (!farmId) return undefined;
+    if (!farmId || !selectedFarmId) return undefined;
     if (demoAccessDenied) return undefined;
     if (demoMode) return DEMO_SOIL_FEATURES;
     if (farmingSessionActive) return undefined;
     const r = pendingSoilSWR.data;
-    if (!r?.ok || !r.data || !pendingSnapshotAppliesToFarm(r.data, farmId)) return undefined;
+    if (!r?.ok || !r.data || !pendingSnapshotAppliesToFarm(r.data, selectedFarmId)) return undefined;
     const f = r.data.features;
     if (!Array.isArray(f) || f.length < 6) return undefined;
     return f.map((x) => Number(x));
-  }, [demoAccessDenied, demoMode, farmingSessionActive, pendingSoilSWR.data, farmId]);
+  }, [demoAccessDenied, demoMode, farmingSessionActive, pendingSoilSWR.data, farmId, selectedFarmId]);
 
   const pendingSoilReceivedAt = useMemo((): string | null => {
-    if (!farmId) return null;
+    if (!farmId || !selectedFarmId) return null;
     if (demoAccessDenied) return null;
     if (demoMode) return new Date().toISOString();
     if (farmingSessionActive && sessionRow?.soil_snapshot?.received_at) {
@@ -280,9 +316,9 @@ export function useFarmDetailData(farmId: string | undefined) {
     }
     if (farmingSessionActive) return null;
     const r = pendingSoilSWR.data;
-    if (!r?.ok || !r.data?.received_at || !pendingSnapshotAppliesToFarm(r.data, farmId)) return null;
+    if (!r?.ok || !r.data?.received_at || !pendingSnapshotAppliesToFarm(r.data, selectedFarmId)) return null;
     return r.data.received_at;
-  }, [demoAccessDenied, demoMode, farmingSessionActive, sessionRow, pendingSoilSWR.data, farmId]);
+  }, [demoAccessDenied, demoMode, farmingSessionActive, sessionRow, pendingSoilSWR.data, farmId, selectedFarmId]);
 
   const pinnedFertilizerData: FertilizerPredictData | null = useMemo(() => {
     if (!farmingSessionActive || !sessionRow?.fertilizer_recommendation) return null;
@@ -304,8 +340,8 @@ export function useFarmDetailData(farmId: string | undefined) {
     farmingSessionActive && sessionRow?.started_at ? sessionRow.started_at : null;
 
   const pendingSnapForCoords =
-    farmId && pendingSoilSWR.data?.ok ? pendingSoilSWR.data.data : undefined;
-  const modelCoords = coordsFromPendingSnapshot(farmId, pendingSnapForCoords);
+    selectedFarmId && pendingSoilSWR.data?.ok ? pendingSoilSWR.data.data : undefined;
+  const modelCoords = coordsFromPendingSnapshot(selectedFarmId, pendingSnapForCoords);
 
   const farmLatRaw = farm?.latitude != null ? Number(farm.latitude) : NaN;
   const farmLonRaw = farm?.longitude != null ? Number(farm.longitude) : NaN;
@@ -341,7 +377,8 @@ export function useFarmDetailData(farmId: string | undefined) {
             !farmsSWR.isLoading &&
             !farmingSessionSWR.isLoading &&
             (!hasCoords || !weatherSWR.isLoading) &&
-            (farmingSessionActive ? true : !pendingSoilSWR.isLoading);
+            (farmingSessionActive ? true : !pendingSoilSWR.isLoading) &&
+            !soilFromApiSWR.isLoading;
 
   const farmsError = isDemoRoute ? undefined : farmsSWR.error;
 
@@ -354,11 +391,15 @@ export function useFarmDetailData(farmId: string | undefined) {
     demoMode,
     demoAccessDenied,
     farm,
+    /** Canonical farm id for soil + ML (list row, else route) — use for `farm_id` in API calls. */
+    selectedFarmId,
     soilHealthForDisplay,
     /** True when values come from ML `GET /pending/soil`. */
     soilHealthFromPending,
     /** True when values come from saved `GET /farm/farming/{farmId}`. */
     soilHealthFromFarmingSession,
+    /** True when values come from tanim-api `soil_health_test` (no live ML, no active session). */
+    soilHealthFromApi,
     farmingSessionActive,
     pinnedFertilizerData,
     pinnedSelectedCrop,
@@ -385,12 +426,14 @@ export function useFarmDetailData(farmId: string | undefined) {
       farmsSWR.isValidating ||
       farmingSessionSWR.isValidating ||
       weatherSWR.isValidating ||
-      pendingSoilSWR.isValidating,
+      pendingSoilSWR.isValidating ||
+      soilFromApiSWR.isValidating,
     mutate: {
       farms: farmsSWR.mutate,
       weather: weatherSWR.mutate,
       pendingSoil: pendingSoilSWR.mutate,
       farmingSession: farmingSessionSWR.mutate,
+      soilFromApi: soilFromApiSWR.mutate,
     },
   };
 }

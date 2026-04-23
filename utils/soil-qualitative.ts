@@ -1,6 +1,6 @@
 /**
  * Qualitative labels aligned with Bureau of Soils and Water Management (BSWM) soil
- * test interpretation: N as % organic matter, P (Bray-1 vs Olsen) by pH, K in ppm, pH class.
+ * test interpretation: N as % organic matter, P (ppm with pH-based BSWM bands), K in ppm, pH class.
  * Values not in the published table (salinity, moisture, temp, ambiguous N) use simple estimated bands.
  */
 
@@ -11,7 +11,7 @@ export type SalinityClass = BswmNutrientClass;
 export type MoistureClass = BswmNutrientClass;
 export type TemperatureClass = BswmNutrientClass;
 
-const PH_P_METHOD = 7.3; // Olsen (alkaline) vs Bray-1 (acidic to neutral) — from BSWM table
+const PH_P_METHOD = 7.3; // threshold for which P (ppm) band table applies — BSWM-style
 
 function tier3(
   v: number,
@@ -38,12 +38,7 @@ export function categorizePh(ph: number): BswmNutrientClass {
   return 'High';
 }
 
-/** Olsen (pH ≥ 7.3) vs Bray-1 (pH &lt; 7.3). */
-export function phosphorusTestLabel(ph: number): 'Bray-1' | 'Olsen' {
-  return ph < PH_P_METHOD ? 'Bray-1' : 'Olsen';
-}
-
-/** P (ppm): Bray-1 for acidic–neutral; Olsen for alkaline. */
+/** P (ppm): BSWM-style bands; thresholds differ for pH below vs at/above `PH_P_METHOD`. */
 export function categorizePhosphorus(ppm: number, ph: number): BswmNutrientClass {
   if (ph < PH_P_METHOD) {
     return tier3(ppm, 10, 20);
@@ -102,7 +97,6 @@ export function soilHealthQualitative(health: ISoilHealth) {
   const p = categorizePhosphorus(Number(phosphorus), Number(ph));
   const k = categorizePotassium(Number(potassium));
   const phClass = categorizePh(ph);
-  const pTest = phosphorusTestLabel(Number(ph));
   return {
     nitrogen: n,
     phosphorus: p,
@@ -111,7 +105,6 @@ export function soilHealthQualitative(health: ISoilHealth) {
     salinity: categorizeSalinity(Number(salinity)),
     moisture: categorizeMoisture(Number(moisture)),
     temperature: categorizeSoilTemperature(Number(temperature)),
-    pTest,
   };
 }
 

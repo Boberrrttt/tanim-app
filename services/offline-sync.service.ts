@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { mutate } from 'swr';
 
 import { isAbortLikeError } from '@/services/api';
 import { getFarms } from '@/services/farm.service';
@@ -8,6 +9,11 @@ import {
   type PendingSoilResult,
   type PendingSoilSnapshot,
 } from '@/services/ml.service';
+import {
+  pendingSnapshotToSoilMetrics,
+  upsertSoilHealthToday,
+} from '@/services/soil-health.service';
+import { swrKeys } from '@/constants/swr-keys';
 import { GetWeatherToday, type WeatherDataShape } from '@/services/weather.service';
 
 const PREFIX = '@tanim/offline/v1';
@@ -22,10 +28,6 @@ function farmingSessionKey(farmId: string): string {
 
 function farmingSessionsByFarmerKey(farmerId: string): string {
   return `${PREFIX}/farming-sessions-by-farmer/${encodeURIComponent(farmerId)}`;
-}
-
-function pendingSoilStorageKey(farmId: string): string {
-  return `${PREFIX}/pending-soil/${encodeURIComponent(farmId)}`;
 }
 
 function weatherByFarmKey(farmId: string): string {
@@ -59,17 +61,19 @@ export function pendingSnapshotAppliesToFarm(data: PendingSoilSnapshot, farmId: 
   return true;
 }
 
-async function persistPendingSoilForFarm(
-  result: PendingSoilResult,
-  farmId: string
+/** Push ML pending snapshot to tanim-api `soil_health_test` (one row per farm per UTC day). */
+async function syncPendingSoilToApi(
+  farmId: string,
+  snap: PendingSoilSnapshot
 ): Promise<void> {
-  if (result.ok && result.data) {
-    if (pendingSnapshotAppliesToFarm(result.data, farmId)) {
-      await saveJson(pendingSoilStorageKey(farmId), result);
-    }
+  if (!pendingSnapshotAppliesToFarm(snap, farmId)) return;
+  try {
+    const metrics = pendingSnapshotToSoilMetrics(snap);
+    await upsertSoilHealthToday(farmId, metrics);
+    void mutate(swrKeys.soilForFarm(farmId));
+  } catch (e) {
+    console.warn('[offline-sync] syncPendingSoilToApi failed', e);
   }
-  // Never clear pending-soil keys when server is empty/waiting: last good snapshot
-  // stays on disk until a newer success for this farm or clearOfflineSyncData (sign-out).
 }
 
 /** Drop all offline copies (call on sign-out so the next user never sees another account’s data). */
@@ -83,18 +87,13 @@ export async function clearOfflineSyncData(): Promise<void> {
   }
 }
 
-// --- Pending soil (ML deployed model cache), one persisted snapshot per farm; kept until
-// overwritten by a newer success for this farm or clearOfflineSyncData on sign-out. ---
-
-export async function loadPersistedPendingSoil(farmId: string): Promise<PendingSoilResult | null> {
-  return loadJson<PendingSoilResult>(pendingSoilStorageKey(farmId));
-}
+// --- Pending soil: live ML `GET /pending/soil` only; successful reads are synced to
+// tanim-api `PUT /test/upsert` (no AsyncStorage). If ML has nothing, the farm screen uses
+// `GET /test/{farmId}` via `useFarmDetailData`. ---
 
 /**
- * Fetches ML `GET /pending/soil`, persists a success snapshot for this `farmId` when applicable.
- * If the response is not usable for this screen (empty/waiting, wrong farm, etc.), returns the
- * last persisted snapshot for this farm so UI + offline still show the last good fetch. On
- * network failure, returns the same persisted copy if present.
+ * Fetches ML `GET /pending/soil`. On success for this farm, upserts `soil_health_test` on tanim-api.
+ * Does not cache the snapshot on device; when ML is empty or offline, use API soil history instead.
  */
 export async function fetchPendingSoilWithOfflinePersist(
   farmId: string,
@@ -102,19 +101,13 @@ export async function fetchPendingSoilWithOfflinePersist(
 ): Promise<PendingSoilResult> {
   try {
     const result = await getPendingSoil(options);
-    await persistPendingSoilForFarm(result, farmId);
     if (result.ok && result.data && pendingSnapshotAppliesToFarm(result.data, farmId)) {
+      await syncPendingSoilToApi(farmId, result.data);
       return result;
-    }
-    const stored = await loadPersistedPendingSoil(farmId);
-    if (stored?.ok && stored.data && pendingSnapshotAppliesToFarm(stored.data, farmId)) {
-      return stored;
     }
     return result;
   } catch (e: unknown) {
     if (isAbortLikeError(e)) throw e;
-    const cached = await loadPersistedPendingSoil(farmId);
-    if (cached?.ok && cached.data) return cached;
     throw e;
   }
 }
