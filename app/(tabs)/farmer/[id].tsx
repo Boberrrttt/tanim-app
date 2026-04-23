@@ -241,18 +241,21 @@ export default function FarmDetailsScreen() {
     }
     setPullRefreshing(true);
     try {
-      await Promise.all([
+      const tasks = [
         mutateFarms(),
         mutateFarmingSession(),
-        mutatePendingSoil(),
-        mutateSoilFromApi(),
         mutateWeather(),
-      ]);
+      ];
+      if (!farmingSessionActive) {
+        tasks.push(mutatePendingSoil(), mutateSoilFromApi());
+      }
+      await Promise.all(tasks);
     } finally {
       setPullRefreshing(false);
     }
   }, [
     demoMode,
+    farmingSessionActive,
     mutateFarms,
     mutateFarmingSession,
     mutatePendingSoil,

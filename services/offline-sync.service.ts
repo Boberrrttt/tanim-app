@@ -93,6 +93,7 @@ export async function clearOfflineSyncData(): Promise<void> {
 
 /**
  * Fetches ML `GET /pending/soil`. On success for this farm, upserts `soil_health_test` on tanim-api.
+ * Do **not** call this while a farming session is active for the farm (SWR should leave the key unset).
  * Does not cache the snapshot on device; when ML is empty or offline, use API soil history instead.
  */
 export async function fetchPendingSoilWithOfflinePersist(

@@ -123,8 +123,9 @@ function coordsFromPendingSnapshot(
 
 /**
  * Farm detail: weather + farms list.
- * Soil: **pinned** `GET /farm/farming/{farmId}` when a session exists, else **live** `GET {ML}/pending/soil`
- * (synced to `PUT /api/v1/test/upsert` on the main API), else **fallback** `GET /test/{farmId}`.
+ * Soil: **pinned** `GET /farm/farming/{farmId}` when a session exists. With an active session, **no ML** and
+ * **no** `soil_health_test` upsert from pending. Otherwise: **live** `GET {ML}/pending/soil` (synced via
+ * `PUT /test/upsert`), else **fallback** `GET /test/{farmId}`.
  */
 export function useFarmDetailData(farmId: string | undefined) {
   const [farmerId, setFarmerId] = useState<string | null>(null);
@@ -172,20 +173,28 @@ export function useFarmDetailData(farmId: string | undefined) {
 
   const sessionRow = farmingSessionSWR.data?.data;
   const farmingSessionActive = isActiveSession(sessionRow);
+  /** Wait for session response so we do not call the ML server or upsert soil before knowing a session exists. */
+  const sessionCheckComplete = !farmingSessionSWR.isLoading;
+  /** While a farming session is active: no `GET /pending/soil`, no `soil_health_test` upsert from that path. */
+  const shouldFetchPendingSoil =
+    Boolean(selectedFarmId) &&
+    !isDemoRoute &&
+    sessionCheckComplete &&
+    !farmingSessionActive;
+
   /** No need to load `soil_health_test` list when the session already pins a soil snapshot. */
   const skipSoilListFetch =
     demoMode ||
     demoAccessDenied ||
     (farmingSessionActive && Boolean(sessionRow?.soil_snapshot));
 
-  /** Fetch whenever a farm is open so `request_payload.lat/lng` can drive weather (even during an active session). */
   const pendingSoilSWR = useSWR(
-    selectedFarmId && !isDemoRoute ? swrKeys.pendingSoil(selectedFarmId) : null,
+    shouldFetchPendingSoil ? swrKeys.pendingSoil(selectedFarmId!) : null,
     () => fetchPendingSoilWithOfflinePersist(selectedFarmId!),
     {
       ...sharedSwrOptions,
       dedupingInterval: 0,
-      refreshInterval: farmingSessionActive ? 0 : 20_000,
+      refreshInterval: 20_000,
     }
   );
 
@@ -272,11 +281,14 @@ export function useFarmDetailData(farmId: string | undefined) {
   const topCrops = useMemo((): CropProbability[] => {
     if (demoAccessDenied) return [];
     if (demoMode) return DEMO_TOP_CROPS;
-    if (farmingSessionActive && sessionRow?.top_crop_probabilities?.length) {
-      return sessionRow.top_crop_probabilities.map(({ crop_class, probability }) => ({
-        crop_class,
-        probability,
-      }));
+    if (farmingSessionActive) {
+      if (sessionRow?.top_crop_probabilities?.length) {
+        return sessionRow.top_crop_probabilities.map(({ crop_class, probability }) => ({
+          crop_class,
+          probability,
+        }));
+      }
+      return [];
     }
     const r = pendingSoilSWR.data;
     if (
@@ -340,7 +352,9 @@ export function useFarmDetailData(farmId: string | undefined) {
     farmingSessionActive && sessionRow?.started_at ? sessionRow.started_at : null;
 
   const pendingSnapForCoords =
-    selectedFarmId && pendingSoilSWR.data?.ok ? pendingSoilSWR.data.data : undefined;
+    !farmingSessionActive && selectedFarmId && pendingSoilSWR.data?.ok
+      ? pendingSoilSWR.data.data
+      : undefined;
   const modelCoords = coordsFromPendingSnapshot(selectedFarmId, pendingSnapForCoords);
 
   const farmLatRaw = farm?.latitude != null ? Number(farm.latitude) : NaN;
