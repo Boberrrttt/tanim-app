@@ -59,16 +59,6 @@ export function pendingSnapshotAppliesToFarm(data: PendingSoilSnapshot, farmId: 
   return true;
 }
 
-async function clearAllPendingSoilFarmKeys(): Promise<void> {
-  try {
-    const keys = await AsyncStorage.getAllKeys();
-    const ours = keys.filter((k) => k.startsWith(`${PREFIX}/pending-soil/`));
-    if (ours.length) await AsyncStorage.multiRemove(ours);
-  } catch (e) {
-    console.error('clearAllPendingSoilFarmKeys', e);
-  }
-}
-
 async function persistPendingSoilForFarm(
   result: PendingSoilResult,
   farmId: string
@@ -77,11 +67,9 @@ async function persistPendingSoilForFarm(
     if (pendingSnapshotAppliesToFarm(result.data, farmId)) {
       await saveJson(pendingSoilStorageKey(farmId), result);
     }
-    return;
   }
-  if (!result.ok && result.waiting) {
-    await clearAllPendingSoilFarmKeys();
-  }
+  // Never clear pending-soil keys when server is empty/waiting: last good snapshot
+  // stays on disk until a newer success for this farm or clearOfflineSyncData (sign-out).
 }
 
 /** Drop all offline copies (call on sign-out so the next user never sees another account’s data). */
@@ -95,15 +83,18 @@ export async function clearOfflineSyncData(): Promise<void> {
   }
 }
 
-// --- Pending soil (ML deployed model cache), one persisted snapshot per farm ---
+// --- Pending soil (ML deployed model cache), one persisted snapshot per farm; kept until
+// overwritten by a newer success for this farm or clearOfflineSyncData on sign-out. ---
 
 export async function loadPersistedPendingSoil(farmId: string): Promise<PendingSoilResult | null> {
   return loadJson<PendingSoilResult>(pendingSoilStorageKey(farmId));
 }
 
 /**
- * Fetches ML `GET /pending/soil`, persists under this `farmId` only when the snapshot is for this
- * farm, and on network failure returns that farm’s last persisted snapshot.
+ * Fetches ML `GET /pending/soil`, persists a success snapshot for this `farmId` when applicable.
+ * If the response is not usable for this screen (empty/waiting, wrong farm, etc.), returns the
+ * last persisted snapshot for this farm so UI + offline still show the last good fetch. On
+ * network failure, returns the same persisted copy if present.
  */
 export async function fetchPendingSoilWithOfflinePersist(
   farmId: string,
@@ -112,6 +103,13 @@ export async function fetchPendingSoilWithOfflinePersist(
   try {
     const result = await getPendingSoil(options);
     await persistPendingSoilForFarm(result, farmId);
+    if (result.ok && result.data && pendingSnapshotAppliesToFarm(result.data, farmId)) {
+      return result;
+    }
+    const stored = await loadPersistedPendingSoil(farmId);
+    if (stored?.ok && stored.data && pendingSnapshotAppliesToFarm(stored.data, farmId)) {
+      return stored;
+    }
     return result;
   } catch (e: unknown) {
     if (isAbortLikeError(e)) throw e;
